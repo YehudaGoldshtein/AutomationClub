@@ -8,6 +8,7 @@ from inventory_sync.domain import (
     SKU,
     Product,
     StockLevel,
+    SyncRun,
     VendorProductId,
     VendorProductSnapshot,
 )
@@ -54,3 +55,20 @@ class InMemoryNotifier:
 
     def send(self, subject: str, body: str) -> None:
         self.sent.append((subject, body))
+
+
+class InMemorySyncRunStore:
+    def __init__(self) -> None:
+        self._runs: dict[str, SyncRun] = {}
+
+    def save(self, run: SyncRun) -> None:
+        self._runs[run.run_id] = run
+
+    def get(self, run_id: str) -> SyncRun | None:
+        return self._runs.get(run_id)
+
+    def list_recent(self, limit: int = 20) -> list[SyncRun]:
+        ordered = sorted(
+            self._runs.values(), key=lambda r: r.started_at, reverse=True
+        )
+        return ordered[:limit]

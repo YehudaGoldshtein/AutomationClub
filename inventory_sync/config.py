@@ -135,6 +135,7 @@ class Config:
     email: EmailConfig
     notifications: NotificationConfig
     sync_interval: str
+    database_url: str
 
 
 def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
@@ -173,6 +174,7 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
             routes=_collect_notification_routes(store),
         ),
         sync_interval=store.get("SYNC_INTERVAL") or "hourly",
+        database_url=store.get("DATABASE_URL") or "sqlite:///inventory_sync.db",
     )
 
     # Never log secret values — only metadata and booleans.

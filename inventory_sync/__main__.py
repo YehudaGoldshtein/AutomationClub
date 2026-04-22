@@ -11,10 +11,12 @@ import argparse
 import sys
 
 import httpx
+import sqlalchemy
 
 from inventory_sync.adapters.laura_design import LauraDesignScraperAdapter
 from inventory_sync.adapters.shopify import ShopifyAdapter
 from inventory_sync.adapters.whatsapp_bridge import WhatsAppBridgeAdapter
+from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.audit import (
     find_archived_but_available,
     format_archived_but_available_message,
@@ -69,6 +71,7 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
     store = _build_shopify_adapter(cfg, log)
     supplier = _build_laura_adapter(cfg, log)
     notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
+    run_store = _build_sync_run_store(cfg, log)
 
     # Share one fetch across sync and audit.
     try:
@@ -128,6 +131,12 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
     if findings:
         subject, body = format_archived_but_available_message(findings, store_name="Max Baby")
         notifier.dispatch(EVENT_ARCHIVE_AUDIT, subject, body)
+
+    # Persist the run (never crashes sync on storage failure; log and continue).
+    try:
+        run_store.save(run)
+    except Exception:
+        log.exception("sync_run_persist_failed", run_id=run.run_id)
 
     # Stdout summary for the operator running the command.
     print(f"run_id={run.run_id}  items_checked={run.items_checked}"
@@ -227,6 +236,13 @@ def _build_notifier(cfg: Config, log: Logger) -> Notifier:
 def _build_whatsapp_adapter(cfg: Config, recipient: str, log: Logger) -> WhatsAppBridgeAdapter:
     client = httpx.Client(base_url=cfg.whatsapp.api_base_url, timeout=15.0)
     return WhatsAppBridgeAdapter(client=client, recipient=recipient, logger=log)
+
+
+def _build_sync_run_store(cfg: Config, log: Logger) -> SqlSyncRunStore:
+    engine = sqlalchemy.create_engine(cfg.database_url, future=True)
+    store = SqlSyncRunStore(engine=engine, logger=log)
+    store.create_schema()
+    return store
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -12,11 +12,16 @@ dependencies = [
     "httpx>=0.27",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
+    "sqlalchemy>=2.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+]
+# Install with: pip install -e ".[postgres]" when deploying with a Postgres DATABASE_URL.
+postgres = [
+    "psycopg[binary]>=3.2",
 ]
 
 [tool.setuptools.packages.find]

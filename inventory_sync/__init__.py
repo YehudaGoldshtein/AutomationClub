@@ -14,13 +14,15 @@ from inventory_sync.domain import (
     VendorProductSnapshot,
 )
 from inventory_sync.engine import SyncEngine
-from inventory_sync.fakes import InMemoryNotifier, InMemoryStore, InMemorySupplier
+from inventory_sync.fakes import InMemoryNotifier, InMemoryStore, InMemorySupplier, InMemorySyncRunStore
 from inventory_sync.interfaces import (
     NotificationChannel,
     StockPolicy,
     StorePlatform,
     SupplierSource,
+    SyncRunStore,
 )
+from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.log import Logger, configure, get
 from inventory_sync.policies import DefaultStockPolicy
 
@@ -31,6 +33,8 @@ __all__ = [
     "LauraDesignScraperAdapter",
     "ShopifyAdapter",
     "ShopifyError",
+    "SqlSyncRunStore",
+    "SyncRunStore",
     "WhatsAppBridgeAdapter",
     "WhatsAppBridgeError",
     "ConfigError",
@@ -40,6 +44,7 @@ __all__ = [
     "InMemoryNotifier",
     "InMemoryStore",
     "InMemorySupplier",
+    "InMemorySyncRunStore",
     "Logger",
     "NotificationChannel",
     "Product",

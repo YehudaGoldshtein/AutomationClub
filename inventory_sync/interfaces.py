@@ -8,6 +8,7 @@ from inventory_sync.domain import (
     Product,
     StockChange,
     StockLevel,
+    SyncRun,
     VendorProductId,
     VendorProductSnapshot,
 )
@@ -47,3 +48,11 @@ class StockPolicy(Protocol):
     def decide(
         self, product: Product, snapshot: VendorProductSnapshot
     ) -> list[StockChange]: ...
+
+
+class SyncRunStore(Protocol):
+    """Persistence for sync-run history. Backend-agnostic: sqlite dev, postgres prod."""
+
+    def save(self, run: SyncRun) -> None: ...
+    def get(self, run_id: str) -> SyncRun | None: ...
+    def list_recent(self, limit: int = 20) -> list[SyncRun]: ...

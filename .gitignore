@@ -5,6 +5,10 @@
 # Runtime output
 logs/
 
+# Local sqlite dev database
+*.db
+*.db-journal
+
 # Python
 __pycache__/
 *.py[cod]

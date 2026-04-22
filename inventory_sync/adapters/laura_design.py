@@ -28,7 +28,7 @@ class LauraDesignScraperAdapter:
     client: httpx.Client
     logger: Logger = field(default_factory=lambda: get("adapters.laura_design"))
     base_url: str = "https://www.laura-design.net"
-    max_workers: int = 8  # concurrent fetches; httpx.Client is thread-safe for reads
+    max_workers: int = 4  # concurrent fetches; httpx.Client is thread-safe for reads. 4 is as fast as 8 or 16 against Laura — lighter on their server, lower risk of tripping rate limits.
 
     def fetch_snapshots(
         self, ids: Iterable[VendorProductId]

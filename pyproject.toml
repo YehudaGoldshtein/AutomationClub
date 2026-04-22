@@ -28,3 +28,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = ["-v", "--tb=short", "--strict-markers"]
+filterwarnings = [
+    "ignore:The 'strip_cdata' option of HTMLParser.*:DeprecationWarning",
+]

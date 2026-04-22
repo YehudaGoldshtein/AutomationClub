@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from inventory_sync.domain import Product, VendorProductSnapshot
 from inventory_sync.interfaces import StorePlatform, SupplierSource
@@ -56,7 +57,7 @@ def format_archived_but_available_message(
 ) -> tuple[str, str]:
     """Return (subject, body) suitable for a WhatsApp / email notification."""
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    subject = f"Archive audit {date}"
+    subject = f"Archive audit for {store_name} — {date}"
 
     if not findings:
         body = (
@@ -67,16 +68,28 @@ def format_archived_but_available_message(
 
     lines: list[str] = [
         f"{len(findings)} archived product(s) in {store_name} are in stock at the supplier "
-        f"— can be unarchived:",
+        f"right now — consider unarchiving:",
         "",
     ]
     for i, f in enumerate(findings, 1):
         parts = [f"{i}. {f.product.sku}"]
-        if f.snapshot.price is not None and f.snapshot.currency:
-            parts.append(f"{f.snapshot.price} {f.snapshot.currency}")
+        price_str = _format_price(f.snapshot.price, f.snapshot.currency)
+        if price_str:
+            parts.append(price_str)
         if f.snapshot.name:
             parts.append(f.snapshot.name)
         lines.append(" - ".join(parts))
 
     body = "\n".join(lines)
     return subject, body
+
+
+def _format_price(price: Decimal | None, currency: str | None) -> str | None:
+    """Render as "NN ILS" or "NN.NN ILS", stripping trailing zeros from the fraction."""
+    if price is None or not currency:
+        return None
+    quantized = price.quantize(Decimal("0.01"))
+    text = format(quantized, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return f"{text} {currency}"

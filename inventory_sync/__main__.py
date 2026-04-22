@@ -209,7 +209,7 @@ def _build_laura_adapter(cfg: Config, log: Logger) -> LauraDesignScraperAdapter:
         headers={"User-Agent": "Mozilla/5.0 (compatible; InventorySyncBot/0.1)"},
     )
     return LauraDesignScraperAdapter(
-        client=client, logger=log, base_url=cfg.vendor.url.rstrip("/"), max_workers=8,
+        client=client, logger=log, base_url=cfg.vendor.url.rstrip("/"), max_workers=4,
     )
 
 

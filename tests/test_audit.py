@@ -105,6 +105,48 @@ class TestFormatMessage:
         assert "1603-135" in body
         assert "69 ILS" in body
 
+    def test_price_strips_trailing_zeros(self):
+        """Decimal('39.5000') should render as '39.5 ILS', not '39.5000 ILS'."""
+        findings = [
+            AuditFinding(
+                product=Product(SKU("A"), VendorProductId("A"), StockLevel(0), published=False),
+                snapshot=_snap("A", True, price=Decimal("39.5000"), currency="ILS"),
+            ),
+            AuditFinding(
+                product=Product(SKU("B"), VendorProductId("B"), StockLevel(0), published=False),
+                snapshot=_snap("B", True, price=Decimal("44.5000"), currency="ILS"),
+            ),
+            AuditFinding(
+                product=Product(SKU("C"), VendorProductId("C"), StockLevel(0), published=False),
+                snapshot=_snap("C", True, price=Decimal("223.2000"), currency="ILS"),
+            ),
+        ]
+        _, body = format_archived_but_available_message(findings)
+        assert "39.5 ILS" in body and "39.5000" not in body
+        assert "44.5 ILS" in body and "44.5000" not in body
+        assert "223.2 ILS" in body and "223.2000" not in body
+
+    def test_price_keeps_integer_clean(self):
+        """Decimal('89') should render as '89 ILS', not '89.00 ILS'."""
+        findings = [
+            AuditFinding(
+                product=Product(SKU("A"), VendorProductId("A"), StockLevel(0), published=False),
+                snapshot=_snap("A", True, price=Decimal("89"), currency="ILS"),
+            ),
+        ]
+        _, body = format_archived_but_available_message(findings)
+        assert "89 ILS" in body and "89.00" not in body
+
+    def test_price_keeps_two_decimals_when_needed(self):
+        findings = [
+            AuditFinding(
+                product=Product(SKU("A"), VendorProductId("A"), StockLevel(0), published=False),
+                snapshot=_snap("A", True, price=Decimal("89.99"), currency="ILS"),
+            ),
+        ]
+        _, body = format_archived_but_available_message(findings)
+        assert "89.99 ILS" in body
+
     def test_findings_without_optional_fields_still_format(self):
         """Price, currency, and name are all optional on the snapshot."""
         findings = [

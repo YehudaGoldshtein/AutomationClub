@@ -38,7 +38,7 @@ Each row below is an interface in the domain layer. Concrete implementations liv
 | Store platform | Bridge | Shopify | WooCommerce, Magento, BigCommerce, custom |
 | Supplier source | Adapter / Strategy | Vendor scraper (→ REST when sniffed) | Other vendor APIs, CSV feeds, email-parsed feeds |
 | Notification channel | Strategy | Interface only in v0.1 | Email, WhatsApp, SMS, Slack, Telegram, webhooks |
-| Stock-change action | Command / Strategy | update-count, unpublish, notify | pause-ads, auto-reorder |
+| Stock policy | Strategy | `DefaultStockPolicy` (set-stock + unpublish on OOS, republish on back-in-stock) | pause-ads, auto-reorder, notify-only, per-product overrides |
 | Multi-supplier policy | Strategy | single-supplier | primary+fallback, split-inventory |
 | Sync trigger | Strategy | interval (hourly cron) | webhook, manual, real-time push |
 | Config store | Repository | `.env` via `python-dotenv` | sqlite, DB, UI-backed |

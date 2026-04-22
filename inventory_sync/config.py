@@ -61,7 +61,8 @@ class WhatsAppConfig:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.api_base_url and self.api_token and self.notify_to)
+        # api_token is optional — the local Go bridge has no auth; remote bridges may require it.
+        return bool(self.api_base_url and self.notify_to)
 
 
 @dataclass(frozen=True)

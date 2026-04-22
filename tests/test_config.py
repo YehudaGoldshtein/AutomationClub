@@ -85,15 +85,15 @@ def test_sync_interval_overridable(env_file: Path, monkeypatch):
     assert config.sync_interval == "daily"
 
 
-def test_whatsapp_is_configured_requires_all_three(env_file: Path, monkeypatch):
+def test_whatsapp_is_configured_requires_url_and_notify_target(env_file: Path, monkeypatch):
+    """Token is optional (local bridge has no auth); base_url + notify_to are required."""
     monkeypatch.setenv("WHATSAPP_API_BASE_URL", "https://wa.example")
-    monkeypatch.setenv("WHATSAPP_API_TOKEN", "tok")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.whatsapp.is_configured is False
+    assert c.whatsapp.is_configured is False  # notify_to still missing
 
     monkeypatch.setenv("WHATSAPP_NOTIFY_TO", "972504265054")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.whatsapp.is_configured is True
+    assert c.whatsapp.is_configured is True  # no token needed
 
 
 def test_email_is_configured_requires_provider_from_and_notify(env_file: Path, monkeypatch):

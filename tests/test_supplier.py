@@ -22,12 +22,16 @@ class SupplierContract:
     def supplier(self) -> SupplierSource:
         raise NotImplementedError("provide a `supplier` fixture in the subclass")
 
-    def test_fetch_known_ids_returns_all(self, supplier: SupplierSource):
+    def test_fetch_known_ids_preserves_in_stock_vs_oos(self, supplier: SupplierSource):
+        """Contract: in-stock stays positive, out-of-stock stays zero.
+
+        Exact stock counts are NOT part of the contract because some adapters
+        (HTML scrapers reading Schema.org availability) are inherently binary.
+        Exact-count adapters are free to preserve precision as an extension.
+        """
         result = supplier.fetch_stock([VendorProductId("V1"), VendorProductId("V2")])
-        assert result == {
-            VendorProductId("V1"): StockLevel(5),
-            VendorProductId("V2"): StockLevel(0),
-        }
+        assert result[VendorProductId("V1")].value > 0
+        assert result[VendorProductId("V2")] == StockLevel(0)
 
     def test_fetch_unknown_id_is_omitted(self, supplier: SupplierSource):
         result = supplier.fetch_stock([VendorProductId("V1"), VendorProductId("UNKNOWN")])

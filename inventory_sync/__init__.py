@@ -8,6 +8,7 @@ from inventory_sync.domain import (
     SyncError,
     SyncRun,
     VendorProductId,
+    VendorProductSnapshot,
 )
 from inventory_sync.engine import SyncEngine
 from inventory_sync.fakes import InMemoryNotifier, InMemoryStore, InMemorySupplier
@@ -43,6 +44,7 @@ __all__ = [
     "SyncError",
     "SyncRun",
     "VendorProductId",
+    "VendorProductSnapshot",
     "configure",
     "get",
     "load_config",

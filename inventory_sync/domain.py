@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from typing import NewType
 from uuid import uuid4
@@ -53,6 +54,24 @@ class StockChange:
             raise ValueError("SET_STOCK change requires a new_stock value")
         if self.kind in (ChangeKind.UNPUBLISH, ChangeKind.REPUBLISH) and self.new_stock is not None:
             raise ValueError(f"{self.kind.value} change must not carry a new_stock value")
+
+
+@dataclass(frozen=True)
+class VendorProductSnapshot:
+    """Rich snapshot of a vendor product captured during one fetch.
+
+    SupplierSource.fetch_stock() uses only stock_level. Other fields are preserved
+    for future features (price sync, catalog enrichment, etc.) without requiring
+    a second round-trip to the vendor.
+    """
+    vendor_product_id: VendorProductId
+    stock_level: StockLevel
+    raw_availability: str | None = None
+    name: str | None = None
+    price: Decimal | None = None
+    currency: str | None = None
+    image_url: str | None = None
+    fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ URL pattern: https://www.laura-design.net/<SKU> (SKU is the URL slug).
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
@@ -27,15 +28,28 @@ class LauraDesignScraperAdapter:
     client: httpx.Client
     logger: Logger = field(default_factory=lambda: get("adapters.laura_design"))
     base_url: str = "https://www.laura-design.net"
+    max_workers: int = 8  # concurrent fetches; httpx.Client is thread-safe for reads
 
     def fetch_snapshots(
         self, ids: Iterable[VendorProductId]
     ) -> dict[VendorProductId, VendorProductSnapshot]:
+        id_list = list(ids)
         out: dict[VendorProductId, VendorProductSnapshot] = {}
-        for vid in ids:
-            snap = self._fetch_one(vid)
-            if snap is not None:
-                out[vid] = snap
+        if not id_list:
+            return out
+        if self.max_workers <= 1:
+            for vid in id_list:
+                snap = self._fetch_one(vid)
+                if snap is not None:
+                    out[vid] = snap
+            return out
+        with ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+            futures = {ex.submit(self._fetch_one, vid): vid for vid in id_list}
+            for fut in as_completed(futures):
+                vid = futures[fut]
+                snap = fut.result()
+                if snap is not None:
+                    out[vid] = snap
         return out
 
     def _fetch_one(self, vid: VendorProductId) -> VendorProductSnapshot | None:

@@ -14,7 +14,9 @@ def _clean_env(monkeypatch):
     """Strip project env vars so each test starts from a clean slate."""
     for key in [
         "SHOPIFY_STORE_URL", "SHOPIFY_ADMIN_API_TOKEN",
+        "SHOPIFY_MYSHOPIFY_DOMAIN", "SHOPIFY_API_VERSION",
         "VENDOR_NAME", "VENDOR_URL", "VENDOR_USERNAME", "VENDOR_PASSWORD",
+        "VENDOR_STORE_TAG",
         "WHATSAPP_API_BASE_URL", "WHATSAPP_API_TOKEN",
         "WHATSAPP_OPS_NUMBER", "WHATSAPP_CLIENT_NUMBER",
         "EMAIL_PROVIDER", "EMAIL_FROM", "EMAIL_API_KEY", "EMAIL_NOTIFY_TO",
@@ -30,6 +32,7 @@ def env_file(tmp_path: Path) -> Path:
         "\n".join([
             "SHOPIFY_STORE_URL=https://example.myshopify.com/",
             "SHOPIFY_ADMIN_API_TOKEN=shpat_testtoken",
+            "SHOPIFY_MYSHOPIFY_DOMAIN=example.myshopify.com",
             "VENDOR_NAME=test-vendor",
             "VENDOR_URL=https://vendor.example/",
         ]),
@@ -67,7 +70,7 @@ def test_os_env_overrides_dotenv(env_file: Path, monkeypatch):
 def test_empty_string_treated_as_missing(tmp_path: Path):
     path = tmp_path / ".env"
     path.write_text(
-        "SHOPIFY_STORE_URL=\nSHOPIFY_ADMIN_API_TOKEN=x\nVENDOR_NAME=v\nVENDOR_URL=u\n",
+        "SHOPIFY_STORE_URL=\nSHOPIFY_ADMIN_API_TOKEN=x\nSHOPIFY_MYSHOPIFY_DOMAIN=x\nVENDOR_NAME=v\nVENDOR_URL=u\n",
         encoding="utf-8",
     )
     store = DotenvConfigStore(path=path)
@@ -124,6 +127,7 @@ def test_secret_token_never_written_to_log(tmp_path: Path):
         "\n".join([
             "SHOPIFY_STORE_URL=https://example.myshopify.com/",
             "SHOPIFY_ADMIN_API_TOKEN=SECRET_MARKER_DO_NOT_LEAK",
+            "SHOPIFY_MYSHOPIFY_DOMAIN=example.myshopify.com",
             "VENDOR_NAME=test-vendor",
             "VENDOR_URL=https://vendor.example/",
         ]),

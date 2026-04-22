@@ -43,6 +43,12 @@ class DotenvConfigStore:
 class ShopifyConfig:
     store_url: str
     admin_api_token: str
+    myshopify_domain: str
+    api_version: str
+
+    @property
+    def admin_api_base_url(self) -> str:
+        return f"https://{self.myshopify_domain}/admin/api/{self.api_version}"
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,7 @@ class VendorConfig:
     url: str
     username: str | None
     password: str | None
+    store_tag: str | None  # exact string in Shopify product.vendor field for this vendor
 
 
 @dataclass(frozen=True)
@@ -96,12 +103,15 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
         shopify=ShopifyConfig(
             store_url=store.require("SHOPIFY_STORE_URL"),
             admin_api_token=store.require("SHOPIFY_ADMIN_API_TOKEN"),
+            myshopify_domain=store.require("SHOPIFY_MYSHOPIFY_DOMAIN"),
+            api_version=store.get("SHOPIFY_API_VERSION") or "2024-10",
         ),
         vendor=VendorConfig(
             name=store.require("VENDOR_NAME"),
             url=store.require("VENDOR_URL"),
             username=store.get("VENDOR_USERNAME"),
             password=store.get("VENDOR_PASSWORD"),
+            store_tag=store.get("VENDOR_STORE_TAG"),
         ),
         whatsapp=WhatsAppConfig(
             api_base_url=store.get("WHATSAPP_API_BASE_URL"),

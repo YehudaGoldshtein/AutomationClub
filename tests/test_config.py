@@ -100,6 +100,31 @@ def test_whatsapp_is_configured_requires_url_and_at_least_one_number(env_file: P
     assert c.whatsapp.is_configured is True  # ops alone is enough
 
 
+def test_notification_routes_picked_up_dynamically(env_file: Path, monkeypatch):
+    """Adding NOTIFY_<NEW_EVENT>_TO=client should require no code change."""
+    monkeypatch.setenv("NOTIFY_ARCHIVE_AUDIT_TO", "client")
+    monkeypatch.setenv("NOTIFY_SOMETHING_NEW_TO", "both")
+    monkeypatch.setenv("NOTIFY_OPS_ENABLED", "true")  # not a route, no _TO suffix
+    c = load(store=DotenvConfigStore(path=env_file))
+    assert c.notifications.routes.get("archive_audit") == "client"
+    assert c.notifications.routes.get("something_new") == "both"
+    # The master switch is not misclassified as a route
+    assert "ops_enabled" not in c.notifications.routes
+
+
+def test_notification_category_switches_default_to_enabled(env_file: Path):
+    c = load(store=DotenvConfigStore(path=env_file))
+    assert c.notifications.ops_enabled is True
+    assert c.notifications.client_enabled is True
+
+
+def test_notification_category_switch_disabled(env_file: Path, monkeypatch):
+    monkeypatch.setenv("NOTIFY_CLIENT_ENABLED", "false")
+    c = load(store=DotenvConfigStore(path=env_file))
+    assert c.notifications.client_enabled is False
+    assert c.notifications.ops_enabled is True
+
+
 def test_whatsapp_client_number_alone_also_enables(env_file: Path, monkeypatch):
     monkeypatch.setenv("WHATSAPP_API_BASE_URL", "https://wa.example")
     monkeypatch.setenv("WHATSAPP_CLIENT_NUMBER", "972500000000")

@@ -21,9 +21,21 @@ def _bool(raw: str | None, *, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _collect_notification_routes(store: ConfigStore) -> dict[str, str]:
+    """Pick up every NOTIFY_<EVENT>_TO env var as a route. Adding a new event type requires only a new env var — no code change."""
+    routes: dict[str, str] = {}
+    for key, value in store.scan("NOTIFY_").items():
+        if not key.endswith("_TO"):
+            continue
+        event_name = key[len("NOTIFY_"):-len("_TO")].lower()
+        routes[event_name] = value
+    return routes
+
+
 class ConfigStore(Protocol):
     def get(self, key: str) -> str | None: ...
     def require(self, key: str) -> str: ...
+    def scan(self, prefix: str) -> dict[str, str]: ...
 
 
 class DotenvConfigStore:
@@ -43,6 +55,14 @@ class DotenvConfigStore:
                 f"Missing required config key '{key}' - not found in {self._path} or environment."
             )
         return v
+
+    def scan(self, prefix: str) -> dict[str, str]:
+        """Return all known keys (from .env + environment) starting with `prefix`.
+
+        Values are returned as-is; empty values are omitted by the dotenv loader
+        but an explicit empty env var may still appear here.
+        """
+        return {k: v for k, v in self._values.items() if k.startswith(prefix)}
 
 
 @dataclass(frozen=True)
@@ -150,11 +170,7 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
         notifications=NotificationConfig(
             ops_enabled=_bool(store.get("NOTIFY_OPS_ENABLED"), default=True),
             client_enabled=_bool(store.get("NOTIFY_CLIENT_ENABLED"), default=True),
-            routes={
-                "sync_error": store.get("NOTIFY_SYNC_ERROR_TO") or "",
-                "sync_summary": store.get("NOTIFY_SYNC_SUMMARY_TO") or "",
-                "archive_audit": store.get("NOTIFY_ARCHIVE_AUDIT_TO") or "",
-            },
+            routes=_collect_notification_routes(store),
         ),
         sync_interval=store.get("SYNC_INTERVAL") or "hourly",
     )

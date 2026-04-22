@@ -1,3 +1,5 @@
+from inventory_sync.adapters.laura_design import LauraDesignScraperAdapter
+from inventory_sync.adapters.shopify import ShopifyAdapter, ShopifyError
 from inventory_sync.config import Config, ConfigError, ConfigStore, DotenvConfigStore, load as load_config
 from inventory_sync.domain import (
     SKU,
@@ -25,6 +27,9 @@ __all__ = [
     "SKU",
     "ChangeKind",
     "Config",
+    "LauraDesignScraperAdapter",
+    "ShopifyAdapter",
+    "ShopifyError",
     "ConfigError",
     "ConfigStore",
     "DefaultStockPolicy",

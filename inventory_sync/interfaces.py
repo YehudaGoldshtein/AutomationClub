@@ -9,6 +9,7 @@ from inventory_sync.domain import (
     StockChange,
     StockLevel,
     VendorProductId,
+    VendorProductSnapshot,
 )
 
 
@@ -22,11 +23,16 @@ class StorePlatform(Protocol):
 
 
 class SupplierSource(Protocol):
-    """Vendor stock source (scraper, REST, CSV, email-parsed feed, etc.)."""
+    """Vendor product source (scraper, REST, CSV, email-parsed feed, etc.).
 
-    def fetch_stock(
+    Returns rich snapshots so each adapter can expose whatever fidelity its
+    source supports — binary availability, exact counts, price, name, etc. —
+    without being forced into a lossy projection.
+    """
+
+    def fetch_snapshots(
         self, ids: Iterable[VendorProductId]
-    ) -> dict[VendorProductId, StockLevel]: ...
+    ) -> dict[VendorProductId, VendorProductSnapshot]: ...
 
 
 class NotificationChannel(Protocol):
@@ -36,8 +42,8 @@ class NotificationChannel(Protocol):
 
 
 class StockPolicy(Protocol):
-    """Decides what StockChanges are needed given the store's view and the vendor's current stock."""
+    """Decides what StockChanges are needed given the store's view and the vendor's snapshot."""
 
     def decide(
-        self, product: Product, vendor_stock: StockLevel
+        self, product: Product, snapshot: VendorProductSnapshot
     ) -> list[StockChange]: ...

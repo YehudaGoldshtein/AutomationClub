@@ -3,51 +3,64 @@ from __future__ import annotations
 
 import pytest
 
-from inventory_sync.domain import StockLevel, VendorProductId
+from inventory_sync.domain import VendorProductId, VendorProductSnapshot
 from inventory_sync.fakes import InMemorySupplier
 from inventory_sync.interfaces import SupplierSource
 
 
-SEEDED_STOCK: dict[VendorProductId, StockLevel] = {
-    VendorProductId("V1"): StockLevel(5),
-    VendorProductId("V2"): StockLevel(0),
-    VendorProductId("V3"): StockLevel(10),
+SEEDED_SNAPSHOTS: dict[VendorProductId, VendorProductSnapshot] = {
+    VendorProductId("V1"): VendorProductSnapshot(
+        vendor_product_id=VendorProductId("V1"),
+        is_available=True,
+        stock_count=None,
+    ),
+    VendorProductId("V2"): VendorProductSnapshot(
+        vendor_product_id=VendorProductId("V2"),
+        is_available=False,
+        stock_count=None,
+    ),
+    VendorProductId("V3"): VendorProductSnapshot(
+        vendor_product_id=VendorProductId("V3"),
+        is_available=True,
+        stock_count=None,
+    ),
 }
 
 
 class SupplierContract:
-    """Mix into a concrete test class and provide the `supplier` fixture seeded with SEEDED_STOCK."""
+    """Mix into a concrete test class and provide the `supplier` fixture seeded with SEEDED_SNAPSHOTS."""
 
     @pytest.fixture
     def supplier(self) -> SupplierSource:
         raise NotImplementedError("provide a `supplier` fixture in the subclass")
 
-    def test_fetch_known_ids_preserves_in_stock_vs_oos(self, supplier: SupplierSource):
-        """Contract: in-stock stays positive, out-of-stock stays zero.
+    def test_fetch_known_ids_preserves_availability(self, supplier: SupplierSource):
+        """Contract: each returned snapshot's is_available matches the seeded value.
 
-        Exact stock counts are NOT part of the contract because some adapters
-        (HTML scrapers reading Schema.org availability) are inherently binary.
-        Exact-count adapters are free to preserve precision as an extension.
+        Exact stock counts are optional — not every adapter can observe them.
         """
-        result = supplier.fetch_stock([VendorProductId("V1"), VendorProductId("V2")])
-        assert result[VendorProductId("V1")].value > 0
-        assert result[VendorProductId("V2")] == StockLevel(0)
+        result = supplier.fetch_snapshots([VendorProductId("V1"), VendorProductId("V2")])
+        assert result[VendorProductId("V1")].is_available is True
+        assert result[VendorProductId("V2")].is_available is False
 
     def test_fetch_unknown_id_is_omitted(self, supplier: SupplierSource):
-        result = supplier.fetch_stock([VendorProductId("V1"), VendorProductId("UNKNOWN")])
+        result = supplier.fetch_snapshots(
+            [VendorProductId("V1"), VendorProductId("UNKNOWN")]
+        )
         assert VendorProductId("V1") in result
         assert VendorProductId("UNKNOWN") not in result
 
     def test_fetch_empty_returns_empty(self, supplier: SupplierSource):
-        result = supplier.fetch_stock([])
+        result = supplier.fetch_snapshots([])
         assert result == {}
 
-    def test_fetch_preserves_zero_stock(self, supplier: SupplierSource):
-        result = supplier.fetch_stock([VendorProductId("V2")])
-        assert result[VendorProductId("V2")] == StockLevel(0)
+    def test_out_of_stock_snapshot_is_not_available(self, supplier: SupplierSource):
+        result = supplier.fetch_snapshots([VendorProductId("V2")])
+        snap = result[VendorProductId("V2")]
+        assert snap.is_available is False
 
 
 class TestInMemorySupplier(SupplierContract):
     @pytest.fixture
     def supplier(self) -> SupplierSource:
-        return InMemorySupplier(stock=dict(SEEDED_STOCK))
+        return InMemorySupplier(snapshots=dict(SEEDED_SNAPSHOTS))

@@ -1,4 +1,4 @@
-"""Stock policies — decide what StockChanges are needed for a product/vendor-stock pair."""
+"""Stock policies — decide what StockChanges are needed for a product/vendor-snapshot pair."""
 from __future__ import annotations
 
 from inventory_sync.domain import (
@@ -6,54 +6,60 @@ from inventory_sync.domain import (
     Product,
     StockChange,
     StockLevel,
+    VendorProductSnapshot,
 )
 
 
 class DefaultStockPolicy:
-    """v0.1 policy.
+    """v0.1 policy — handles both exact-count and binary-only vendor signals.
 
-    Vendor OOS: set store stock to 0 and unpublish (each only if not already so).
-    Vendor in stock: set store stock to vendor stock (if different); republish if currently unpublished.
+    - `snapshot.stock_count is not None` -> exact mode: sync store to that number
+      when it differs.
+    - `snapshot.stock_count is None` -> binary mode:
+        * vendor out of stock -> set store stock to 0 (if store has any).
+        * vendor in stock AND store has stock -> no change (preserve store's exact count).
+        * vendor in stock AND store at 0 -> set to 1 (back-in-stock, at least one).
+
+    Does NOT automatically emit UNPUBLISH / REPUBLISH — those are owner-triggered
+    manually in v0.1. The ChangeKinds stay available for a future manual entrypoint.
     """
 
-    def decide(self, product: Product, vendor_stock: StockLevel) -> list[StockChange]:
-        changes: list[StockChange] = []
+    def decide(self, product: Product, snapshot: VendorProductSnapshot) -> list[StockChange]:
+        # Exact-count mode: vendor gave us a specific number.
+        if snapshot.stock_count is not None:
+            target = StockLevel(snapshot.stock_count)
+            if product.stock != target:
+                return [
+                    StockChange(
+                        sku=product.sku,
+                        kind=ChangeKind.SET_STOCK,
+                        new_stock=target,
+                        reason="vendor exact count",
+                    )
+                ]
+            return []
 
-        if vendor_stock.is_out_of_stock:
+        # Binary mode — we only know in/out of stock.
+        if not snapshot.is_available:
             if not product.stock.is_out_of_stock:
-                changes.append(
+                return [
                     StockChange(
                         sku=product.sku,
                         kind=ChangeKind.SET_STOCK,
                         new_stock=StockLevel(0),
                         reason="vendor out of stock",
                     )
-                )
-            if product.published:
-                changes.append(
-                    StockChange(
-                        sku=product.sku,
-                        kind=ChangeKind.UNPUBLISH,
-                        reason="vendor out of stock",
-                    )
-                )
-            return changes
+                ]
+            return []
 
-        if product.stock != vendor_stock:
-            changes.append(
+        # Vendor is available but no exact count — preserve store's count when positive.
+        if product.stock.is_out_of_stock:
+            return [
                 StockChange(
                     sku=product.sku,
                     kind=ChangeKind.SET_STOCK,
-                    new_stock=vendor_stock,
-                    reason="vendor stock changed",
+                    new_stock=StockLevel(1),
+                    reason="vendor back in stock (binary, at least 1)",
                 )
-            )
-        if not product.published:
-            changes.append(
-                StockChange(
-                    sku=product.sku,
-                    kind=ChangeKind.REPUBLISH,
-                    reason="vendor back in stock",
-                )
-            )
-        return changes
+            ]
+        return []

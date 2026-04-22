@@ -41,18 +41,19 @@ class SyncEngine:
         log.info("catalog_loaded", count=run.items_checked)
 
         vendor_ids = [p.vendor_product_id for p in products]
-        vendor_stock = self._safe_fetch_stock(vendor_ids, run, log)
-        if vendor_stock is None:
+        snapshots = self._safe_fetch_snapshots(vendor_ids, run, log)
+        if snapshots is None:
             return self._finish(run, log, aborted=True, reason="supplier unreachable")
 
         log.info(
-            "vendor_stock_loaded",
-            returned=len(vendor_stock),
+            "vendor_snapshots_loaded",
+            returned=len(snapshots),
             requested=len(vendor_ids),
         )
 
         for product in products:
-            if product.vendor_product_id not in vendor_stock:
+            snapshot = snapshots.get(product.vendor_product_id)
+            if snapshot is None:
                 log.warning(
                     "vendor_missing_product",
                     sku=product.sku,
@@ -60,13 +61,13 @@ class SyncEngine:
                 )
                 run.errors.append(
                     SyncError(
-                        message=f"vendor did not return stock for {product.vendor_product_id}",
+                        message=f"vendor did not return snapshot for {product.vendor_product_id}",
                         sku=product.sku,
                     )
                 )
                 continue
 
-            changes = self.policy.decide(product, vendor_stock[product.vendor_product_id])
+            changes = self.policy.decide(product, snapshot)
             for change in changes:
                 run.changes_planned.append(change)
                 if self._safe_apply(change, run, log):
@@ -82,12 +83,12 @@ class SyncEngine:
             run.errors.append(SyncError(message=f"store.list_products failed: {e}"))
             return None
 
-    def _safe_fetch_stock(self, vendor_ids, run: SyncRun, log: Logger):
+    def _safe_fetch_snapshots(self, vendor_ids, run: SyncRun, log: Logger):
         try:
-            return self.supplier.fetch_stock(vendor_ids)
+            return self.supplier.fetch_snapshots(vendor_ids)
         except Exception as e:
             log.exception("supplier_fetch_failed")
-            run.errors.append(SyncError(message=f"supplier.fetch_stock failed: {e}"))
+            run.errors.append(SyncError(message=f"supplier.fetch_snapshots failed: {e}"))
             return None
 
     def _safe_apply(self, change: StockChange, run: SyncRun, log: Logger) -> bool:

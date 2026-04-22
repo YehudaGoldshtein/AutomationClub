@@ -1,8 +1,7 @@
 """Laura Design supplier adapter.
 
-Scrapes each product page's embedded Schema.org JSON-LD to capture stock,
-price, name, and image. Implements SupplierSource for v0.1 (stock-only);
-fetch_snapshots() exposes the full data for future features.
+Scrapes each product page's embedded Schema.org JSON-LD to capture availability,
+price, name, and image. Binary availability only — `stock_count` stays None.
 
 URL pattern: https://www.laura-design.net/<SKU> (SKU is the URL slug).
 """
@@ -17,7 +16,6 @@ import httpx
 from bs4 import BeautifulSoup
 
 from inventory_sync.domain import (
-    StockLevel,
     VendorProductId,
     VendorProductSnapshot,
 )
@@ -30,17 +28,9 @@ class LauraDesignScraperAdapter:
     logger: Logger = field(default_factory=lambda: get("adapters.laura_design"))
     base_url: str = "https://www.laura-design.net"
 
-    def fetch_stock(
-        self, ids: Iterable[VendorProductId]
-    ) -> dict[VendorProductId, StockLevel]:
-        """SupplierSource impl — stock-level view over the richer snapshot data."""
-        snapshots = self.fetch_snapshots(ids)
-        return {vid: snap.stock_level for vid, snap in snapshots.items()}
-
     def fetch_snapshots(
         self, ids: Iterable[VendorProductId]
     ) -> dict[VendorProductId, VendorProductSnapshot]:
-        """Full snapshot per id — stock, price, name, image, currency, timestamp."""
         out: dict[VendorProductId, VendorProductSnapshot] = {}
         for vid in ids:
             snap = self._fetch_one(vid)
@@ -71,11 +61,12 @@ class LauraDesignScraperAdapter:
 
         offers = product.get("offers") or {}
         raw_availability = offers.get("availability")
-        stock = _availability_to_stock(raw_availability)
+        is_available = _is_available(raw_availability)
 
         snapshot = VendorProductSnapshot(
             vendor_product_id=vid,
-            stock_level=stock,
+            is_available=is_available,
+            stock_count=None,  # binary-only source
             raw_availability=raw_availability,
             name=_str_or_none(product.get("name")),
             price=_to_decimal(offers.get("price")),
@@ -84,7 +75,7 @@ class LauraDesignScraperAdapter:
         )
         log.info(
             "snapshot_fetched",
-            stock=stock.value,
+            is_available=is_available,
             has_price=snapshot.price is not None,
             has_image=snapshot.image_url is not None,
         )
@@ -109,15 +100,9 @@ def _extract_product_jsonld(html: str) -> dict | None:
     return None
 
 
-def _availability_to_stock(availability: str | None) -> StockLevel:
-    """Map Schema.org availability to a StockLevel.
-
-    We get binary signal from JSON-LD — map InStock to 1 (any positive) and
-    OutOfStock / unknown / missing to 0. Good enough for v0.1 OOS/unpublish flow.
-    """
-    if availability and "InStock" in availability:
-        return StockLevel(1)
-    return StockLevel(0)
+def _is_available(availability: str | None) -> bool:
+    """Schema.org availability values: InStock, OutOfStock, Discontinued, PreOrder, etc."""
+    return bool(availability and "InStock" in availability)
 
 
 def _to_decimal(value) -> Decimal | None:

@@ -9,6 +9,7 @@ from inventory_sync.domain import (
     Product,
     StockLevel,
     VendorProductId,
+    VendorProductSnapshot,
 )
 
 
@@ -33,16 +34,18 @@ class InMemoryStore:
 
 
 class InMemorySupplier:
-    def __init__(self, stock: dict[VendorProductId, StockLevel] | None = None):
-        self._stock: dict[VendorProductId, StockLevel] = dict(stock or {})
+    def __init__(
+        self, snapshots: dict[VendorProductId, VendorProductSnapshot] | None = None
+    ):
+        self._snapshots: dict[VendorProductId, VendorProductSnapshot] = dict(snapshots or {})
 
-    def fetch_stock(
+    def fetch_snapshots(
         self, ids: Iterable[VendorProductId]
-    ) -> dict[VendorProductId, StockLevel]:
-        return {vid: self._stock[vid] for vid in ids if vid in self._stock}
+    ) -> dict[VendorProductId, VendorProductSnapshot]:
+        return {vid: self._snapshots[vid] for vid in ids if vid in self._snapshots}
 
-    def set_stock(self, vid: VendorProductId, level: StockLevel) -> None:
-        self._stock[vid] = level
+    def set_snapshot(self, snapshot: VendorProductSnapshot) -> None:
+        self._snapshots[snapshot.vendor_product_id] = snapshot
 
 
 class InMemoryNotifier:

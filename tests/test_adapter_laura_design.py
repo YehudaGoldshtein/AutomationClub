@@ -2,7 +2,7 @@
 
 Uses httpx.MockTransport so no live network calls run in CI. Includes a
 SupplierContract subclass so the adapter is validated against the same
-contract that InMemorySupplier passes — pluggability enforced in code.
+contract that InMemorySupplier passes.
 """
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ import httpx
 import pytest
 
 from inventory_sync.adapters.laura_design import LauraDesignScraperAdapter
-from inventory_sync.domain import StockLevel, VendorProductId
+from inventory_sync.domain import VendorProductId
 from inventory_sync.log import get
 
-from tests.test_supplier import SEEDED_STOCK, SupplierContract
+from tests.test_supplier import SEEDED_SNAPSHOTS, SupplierContract
 
 
 BASE_URL = "https://vendor.test"
@@ -76,21 +76,23 @@ class TestFetchSnapshotHappyPath:
         snapshots = adapter.fetch_snapshots([VendorProductId("3200-118")])
 
         snap = snapshots[VendorProductId("3200-118")]
-        assert snap.stock_level == StockLevel(1)
+        assert snap.is_available is True
+        assert snap.stock_count is None  # binary source
         assert snap.raw_availability == "https://schema.org/InStock"
         assert snap.name == "Hebrew Product"
         assert snap.price == Decimal("89")
         assert snap.currency == "ILS"
         assert snap.image_url == "https://vendor.test/img.jpg"
 
-    def test_out_of_stock_maps_to_stock_zero(self):
+    def test_out_of_stock_is_not_available(self):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text=_jsonld_html(sku="OOS-1", availability="OutOfStock"))
 
         adapter = _make_adapter(handler)
         snap = adapter.fetch_snapshots([VendorProductId("OOS-1")])[VendorProductId("OOS-1")]
 
-        assert snap.stock_level == StockLevel(0)
+        assert snap.is_available is False
+        assert snap.stock_count is None
         assert "OutOfStock" in snap.raw_availability
 
     def test_image_list_takes_first(self):
@@ -150,7 +152,7 @@ class TestFetchSnapshotErrors:
 
         adapter = _make_adapter(handler)
         snap = adapter.fetch_snapshots([VendorProductId("X")])[VendorProductId("X")]
-        assert snap.stock_level == StockLevel(1)
+        assert snap.is_available is True
 
     def test_network_exception_returns_no_snapshot(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -159,20 +161,6 @@ class TestFetchSnapshotErrors:
         adapter = _make_adapter(handler)
         snapshots = adapter.fetch_snapshots([VendorProductId("X")])
         assert snapshots == {}
-
-
-class TestFetchStockProjection:
-    """fetch_stock() is the SupplierSource interface method — narrow view over snapshots."""
-
-    def test_returns_stock_levels_only(self):
-        def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, text=_jsonld_html(
-                sku=request.url.path.lstrip("/"), availability="InStock"
-            ))
-
-        adapter = _make_adapter(handler)
-        stock = adapter.fetch_stock([VendorProductId("A"), VendorProductId("B")])
-        assert stock == {VendorProductId("A"): StockLevel(1), VendorProductId("B"): StockLevel(1)}
 
 
 class TestLauraDesignSatisfiesSupplierContract(SupplierContract):
@@ -186,11 +174,10 @@ class TestLauraDesignSatisfiesSupplierContract(SupplierContract):
     def supplier(self) -> LauraDesignScraperAdapter:
         def handler(request: httpx.Request) -> httpx.Response:
             vid = request.url.path.lstrip("/")
-            try:
-                level = SEEDED_STOCK[VendorProductId(vid)]
-            except KeyError:
+            seeded = SEEDED_SNAPSHOTS.get(VendorProductId(vid))
+            if seeded is None:
                 return httpx.Response(404, text="not found")
-            availability = "InStock" if level.value > 0 else "OutOfStock"
+            availability = "InStock" if seeded.is_available else "OutOfStock"
             return httpx.Response(200, text=_jsonld_html(sku=vid, availability=availability))
 
         return _make_adapter(handler)

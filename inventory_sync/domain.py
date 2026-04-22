@@ -28,7 +28,7 @@ class StockLevel:
 
 @dataclass(frozen=True)
 class Product:
-    """A product as it currently exists in the store, with its vendor mapping."""
+    """A syncable unit in the store — typically a Shopify variant, each with its own SKU, stock, and vendor mapping."""
     sku: SKU
     vendor_product_id: VendorProductId
     stock: StockLevel
@@ -58,20 +58,34 @@ class StockChange:
 
 @dataclass(frozen=True)
 class VendorProductSnapshot:
-    """Rich snapshot of a vendor product captured during one fetch.
+    """Snapshot of a vendor product captured during one fetch.
 
-    SupplierSource.fetch_stock() uses only stock_level. Other fields are preserved
-    for future features (price sync, catalog enrichment, etc.) without requiring
-    a second round-trip to the vendor.
+    Two fields carry the stock signal:
+      - `is_available`: every vendor tells us this (binary in/out).
+      - `stock_count`: exact count when the vendor provides one; None when only
+        binary availability is known.
+
+    Invariants enforced at construction keep these consistent (e.g., stock_count=0
+    with is_available=True is rejected).
     """
     vendor_product_id: VendorProductId
-    stock_level: StockLevel
+    is_available: bool
+    stock_count: int | None = None
     raw_availability: str | None = None
     name: str | None = None
     price: Decimal | None = None
     currency: str | None = None
     image_url: str | None = None
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def __post_init__(self) -> None:
+        if self.stock_count is not None:
+            if self.stock_count < 0:
+                raise ValueError(f"stock_count cannot be negative: {self.stock_count}")
+            if self.stock_count == 0 and self.is_available:
+                raise ValueError("inconsistent: stock_count=0 but is_available=True")
+            if self.stock_count > 0 and not self.is_available:
+                raise ValueError("inconsistent: stock_count>0 but is_available=False")
 
 
 @dataclass(frozen=True)

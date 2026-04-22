@@ -12,6 +12,7 @@ from inventory_sync.domain import (
     Product,
     StockLevel,
     VendorProductId,
+    VendorProductSnapshot,
 )
 from inventory_sync.engine import SyncEngine
 from inventory_sync.fakes import InMemoryStore, InMemorySupplier
@@ -33,12 +34,20 @@ def _engine(store, supplier, log: Logger) -> SyncEngine:
     return SyncEngine(store=store, supplier=supplier, policy=DefaultStockPolicy(), logger=log)
 
 
+def _snap(vid: str, available: bool, count: int | None = None) -> VendorProductSnapshot:
+    return VendorProductSnapshot(
+        vendor_product_id=VendorProductId(vid),
+        is_available=available,
+        stock_count=count,
+    )
+
+
 class TestHappyPaths:
-    def test_no_changes_when_store_already_matches_vendor(self, log: Logger):
+    def test_no_changes_when_binary_vendor_agrees_with_positive_store(self, log: Logger):
         store = InMemoryStore(products=[
             Product(SKU("X"), VendorProductId("V"), StockLevel(5), published=True),
         ])
-        supplier = InMemorySupplier(stock={VendorProductId("V"): StockLevel(5)})
+        supplier = InMemorySupplier(snapshots={VendorProductId("V"): _snap("V", True)})
 
         run = _engine(store, supplier, log).run()
 
@@ -47,68 +56,71 @@ class TestHappyPaths:
         assert run.errors == []
         assert run.finished_at is not None
 
-    def test_vendor_oos_sets_stock_zero_and_unpublishes(self, log: Logger):
+    def test_binary_oos_sets_stock_to_zero(self, log: Logger):
         store = InMemoryStore(products=[
             Product(SKU("X"), VendorProductId("V"), StockLevel(5), published=True),
         ])
-        supplier = InMemorySupplier(stock={VendorProductId("V"): StockLevel(0)})
+        supplier = InMemorySupplier(snapshots={VendorProductId("V"): _snap("V", False)})
 
         run = _engine(store, supplier, log).run()
 
         kinds = {c.kind for c in run.changes_applied}
-        assert kinds == {ChangeKind.SET_STOCK, ChangeKind.UNPUBLISH}
-
+        assert kinds == {ChangeKind.SET_STOCK}
         p = store.get(SKU("X"))
         assert p.stock == StockLevel(0)
-        assert p.published is False
+        assert p.published is True  # UNPUBLISH is NOT auto-emitted in v0.1
 
-    def test_back_in_stock_sets_and_republishes(self, log: Logger):
+    def test_binary_back_in_stock_from_zero_sets_one(self, log: Logger):
         store = InMemoryStore(products=[
-            Product(SKU("X"), VendorProductId("V"), StockLevel(0), published=False),
+            Product(SKU("X"), VendorProductId("V"), StockLevel(0), published=True),
         ])
-        supplier = InMemorySupplier(stock={VendorProductId("V"): StockLevel(4)})
+        supplier = InMemorySupplier(snapshots={VendorProductId("V"): _snap("V", True)})
 
         run = _engine(store, supplier, log).run()
 
-        kinds = {c.kind for c in run.changes_applied}
-        assert kinds == {ChangeKind.SET_STOCK, ChangeKind.REPUBLISH}
+        assert len(run.changes_applied) == 1
+        assert store.get(SKU("X")).stock == StockLevel(1)
 
-        p = store.get(SKU("X"))
-        assert p.stock == StockLevel(4)
-        assert p.published is True
+    def test_exact_count_syncs_to_exact_number(self, log: Logger):
+        store = InMemoryStore(products=[
+            Product(SKU("X"), VendorProductId("V"), StockLevel(5), published=True),
+        ])
+        supplier = InMemorySupplier(snapshots={VendorProductId("V"): _snap("V", True, 42)})
+
+        run = _engine(store, supplier, log).run()
+
+        assert store.get(SKU("X")).stock == StockLevel(42)
 
     def test_mixed_catalog_applies_only_needed_changes(self, log: Logger):
         store = InMemoryStore(products=[
             Product(SKU("A"), VendorProductId("VA"), StockLevel(3), published=True),
             Product(SKU("B"), VendorProductId("VB"), StockLevel(5), published=True),
-            Product(SKU("C"), VendorProductId("VC"), StockLevel(0), published=False),
+            Product(SKU("C"), VendorProductId("VC"), StockLevel(0), published=True),
         ])
-        supplier = InMemorySupplier(stock={
-            VendorProductId("VA"): StockLevel(3),   # no change
-            VendorProductId("VB"): StockLevel(0),   # went OOS
-            VendorProductId("VC"): StockLevel(2),   # back in stock
+        supplier = InMemorySupplier(snapshots={
+            VendorProductId("VA"): _snap("VA", True),   # binary, store has 3 -> no change
+            VendorProductId("VB"): _snap("VB", False),  # OOS -> set 0
+            VendorProductId("VC"): _snap("VC", True),   # binary, store 0 -> set 1
         })
 
         run = _engine(store, supplier, log).run()
 
         assert run.items_checked == 3
         assert run.errors == []
-
         assert store.get(SKU("A")).stock == StockLevel(3)
-        assert store.get(SKU("A")).published is True
         assert store.get(SKU("B")).stock == StockLevel(0)
-        assert store.get(SKU("B")).published is False
-        assert store.get(SKU("C")).stock == StockLevel(2)
-        assert store.get(SKU("C")).published is True
+        assert store.get(SKU("C")).stock == StockLevel(1)
 
 
 class TestPartialFailures:
-    def test_vendor_missing_product_is_recorded_other_products_still_sync(self, log: Logger):
+    def test_vendor_missing_product_is_recorded_others_still_sync(self, log: Logger):
         store = InMemoryStore(products=[
             Product(SKU("A"), VendorProductId("VA"), StockLevel(3), published=True),
             Product(SKU("B"), VendorProductId("VB-missing"), StockLevel(5), published=True),
         ])
-        supplier = InMemorySupplier(stock={VendorProductId("VA"): StockLevel(10)})
+        supplier = InMemorySupplier(snapshots={
+            VendorProductId("VA"): _snap("VA", True, 10),
+        })
 
         run = _engine(store, supplier, log).run()
 
@@ -128,9 +140,9 @@ class TestPartialFailures:
             Product(SKU("A"), VendorProductId("VA"), StockLevel(3), published=True),
             Product(SKU("B"), VendorProductId("VB"), StockLevel(5), published=True),
         ])
-        supplier = InMemorySupplier(stock={
-            VendorProductId("VA"): StockLevel(10),
-            VendorProductId("VB"): StockLevel(20),
+        supplier = InMemorySupplier(snapshots={
+            VendorProductId("VA"): _snap("VA", True, 10),
+            VendorProductId("VB"): _snap("VB", True, 20),
         })
 
         run = _engine(store, supplier, log).run()
@@ -142,7 +154,7 @@ class TestPartialFailures:
 class TestCatastrophicFailures:
     def test_supplier_unreachable_aborts_without_touching_store(self, log: Logger):
         class BrokenSupplier:
-            def fetch_stock(self, ids):
+            def fetch_snapshots(self, ids):
                 raise ConnectionError("vendor unreachable")
 
         store = InMemoryStore(products=[
@@ -168,7 +180,7 @@ class TestCatastrophicFailures:
 
         run = SyncEngine(
             store=BrokenStore(),
-            supplier=InMemorySupplier(stock={}),
+            supplier=InMemorySupplier(snapshots={}),
             policy=DefaultStockPolicy(),
             logger=log,
         ).run()
@@ -183,7 +195,7 @@ class TestLogging:
         store = InMemoryStore(products=[
             Product(SKU("X"), VendorProductId("V"), StockLevel(5), published=True),
         ])
-        supplier = InMemorySupplier(stock={VendorProductId("V"): StockLevel(0)})
+        supplier = InMemorySupplier(snapshots={VendorProductId("V"): _snap("V", False)})
 
         run = _engine(store, supplier, log).run()
 
@@ -195,7 +207,6 @@ class TestLogging:
         assert "sync_complete" in event_names
         assert "change_applied" in event_names
 
-        # Every event emitted by the engine carries run_id from bind()
         for e in events:
             if e["logger"] == "inventory_sync":
                 assert e.get("run_id") == run.run_id

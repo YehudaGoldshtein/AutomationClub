@@ -14,6 +14,7 @@ from inventory_sync.domain import (
     SyncError,
     SyncRun,
     VendorProductId,
+    VendorProductSnapshot,
 )
 
 
@@ -122,3 +123,52 @@ class TestSyncError:
     def test_with_sku(self):
         err = SyncError(message="scrape failed", sku=SKU("X-1"))
         assert err.sku == "X-1"
+
+
+class TestVendorProductSnapshot:
+    def test_binary_in_stock(self):
+        s = VendorProductSnapshot(
+            vendor_product_id=VendorProductId("V1"),
+            is_available=True,
+            stock_count=None,
+        )
+        assert s.is_available is True
+        assert s.stock_count is None
+
+    def test_exact_count_with_zero_is_not_available(self):
+        s = VendorProductSnapshot(
+            vendor_product_id=VendorProductId("V1"),
+            is_available=False,
+            stock_count=0,
+        )
+        assert s.is_available is False
+        assert s.stock_count == 0
+
+    def test_negative_stock_count_raises(self):
+        with pytest.raises(ValueError, match="negative"):
+            VendorProductSnapshot(
+                vendor_product_id=VendorProductId("V1"),
+                is_available=False,
+                stock_count=-1,
+            )
+
+    def test_contradiction_zero_count_but_available_raises(self):
+        with pytest.raises(ValueError, match="inconsistent"):
+            VendorProductSnapshot(
+                vendor_product_id=VendorProductId("V1"),
+                is_available=True,
+                stock_count=0,
+            )
+
+    def test_contradiction_positive_count_but_not_available_raises(self):
+        with pytest.raises(ValueError, match="inconsistent"):
+            VendorProductSnapshot(
+                vendor_product_id=VendorProductId("V1"),
+                is_available=False,
+                stock_count=5,
+            )
+
+    def test_binary_only_with_any_is_available_value_ok(self):
+        """stock_count=None means 'we don't know exactly' — any is_available is valid."""
+        VendorProductSnapshot(vendor_product_id=VendorProductId("V1"), is_available=True)
+        VendorProductSnapshot(vendor_product_id=VendorProductId("V1"), is_available=False)

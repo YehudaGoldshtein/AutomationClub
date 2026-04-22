@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventory-sync"
+version = "0.1.0"
+description = "Supplier to Shopify inventory sync (Laura Design -> Max Baby)"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+packages = ["inventory_sync"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = ["-v", "--tb=short", "--strict-markers"]

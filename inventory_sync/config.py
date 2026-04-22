@@ -57,12 +57,14 @@ class VendorConfig:
 class WhatsAppConfig:
     api_base_url: str | None
     api_token: str | None
-    notify_to: str | None
+    ops_number: str | None     # dev/ops alerts (sync errors, infra)
+    client_number: str | None  # business alerts for the store owner (OOS, digests)
 
     @property
     def is_configured(self) -> bool:
         # api_token is optional — the local Go bridge has no auth; remote bridges may require it.
-        return bool(self.api_base_url and self.notify_to)
+        # Either ops or client number is enough to enable WhatsApp notifications.
+        return bool(self.api_base_url and (self.ops_number or self.client_number))
 
 
 @dataclass(frozen=True)
@@ -104,7 +106,8 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
         whatsapp=WhatsAppConfig(
             api_base_url=store.get("WHATSAPP_API_BASE_URL"),
             api_token=store.get("WHATSAPP_API_TOKEN"),
-            notify_to=store.get("WHATSAPP_NOTIFY_TO"),
+            ops_number=store.get("WHATSAPP_OPS_NUMBER"),
+            client_number=store.get("WHATSAPP_CLIENT_NUMBER"),
         ),
         email=EmailConfig(
             provider=store.get("EMAIL_PROVIDER"),

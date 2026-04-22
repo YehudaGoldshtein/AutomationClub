@@ -15,7 +15,8 @@ def _clean_env(monkeypatch):
     for key in [
         "SHOPIFY_STORE_URL", "SHOPIFY_ADMIN_API_TOKEN",
         "VENDOR_NAME", "VENDOR_URL", "VENDOR_USERNAME", "VENDOR_PASSWORD",
-        "WHATSAPP_API_BASE_URL", "WHATSAPP_API_TOKEN", "WHATSAPP_NOTIFY_TO",
+        "WHATSAPP_API_BASE_URL", "WHATSAPP_API_TOKEN",
+        "WHATSAPP_OPS_NUMBER", "WHATSAPP_CLIENT_NUMBER",
         "EMAIL_PROVIDER", "EMAIL_FROM", "EMAIL_API_KEY", "EMAIL_NOTIFY_TO",
         "SYNC_INTERVAL",
     ]:
@@ -85,15 +86,24 @@ def test_sync_interval_overridable(env_file: Path, monkeypatch):
     assert config.sync_interval == "daily"
 
 
-def test_whatsapp_is_configured_requires_url_and_notify_target(env_file: Path, monkeypatch):
-    """Token is optional (local bridge has no auth); base_url + notify_to are required."""
+def test_whatsapp_is_configured_requires_url_and_at_least_one_number(env_file: Path, monkeypatch):
+    """Token is optional. Base URL + at least one of ops/client number is required."""
     monkeypatch.setenv("WHATSAPP_API_BASE_URL", "https://wa.example")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.whatsapp.is_configured is False  # notify_to still missing
+    assert c.whatsapp.is_configured is False  # no recipients yet
 
-    monkeypatch.setenv("WHATSAPP_NOTIFY_TO", "972504265054")
+    monkeypatch.setenv("WHATSAPP_OPS_NUMBER", "972504265054")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.whatsapp.is_configured is True  # no token needed
+    assert c.whatsapp.is_configured is True  # ops alone is enough
+
+
+def test_whatsapp_client_number_alone_also_enables(env_file: Path, monkeypatch):
+    monkeypatch.setenv("WHATSAPP_API_BASE_URL", "https://wa.example")
+    monkeypatch.setenv("WHATSAPP_CLIENT_NUMBER", "972500000000")
+    c = load(store=DotenvConfigStore(path=env_file))
+    assert c.whatsapp.is_configured is True
+    assert c.whatsapp.client_number == "972500000000"
+    assert c.whatsapp.ops_number is None
 
 
 def test_email_is_configured_requires_provider_from_and_notify(env_file: Path, monkeypatch):

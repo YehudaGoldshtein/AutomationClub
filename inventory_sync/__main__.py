@@ -13,6 +13,7 @@ import sys
 import httpx
 import sqlalchemy
 
+from inventory_sync.adapters.email_resend import ResendEmailAdapter
 from inventory_sync.adapters.laura_design import LauraDesignScraperAdapter
 from inventory_sync.adapters.shopify import ShopifyAdapter
 from inventory_sync.adapters.whatsapp_bridge import WhatsAppBridgeAdapter
@@ -223,12 +224,12 @@ def _build_laura_adapter(cfg: Config, log: Logger) -> LauraDesignScraperAdapter:
 
 
 def _build_notifier(cfg: Config, log: Logger) -> Notifier:
-    ops_channel = _build_whatsapp_adapter(cfg, cfg.whatsapp.ops_number, log) if cfg.whatsapp.ops_number else None
-    client_channel = _build_whatsapp_adapter(cfg, cfg.whatsapp.client_number, log) if cfg.whatsapp.client_number else None
     return Notifier(
         config=cfg.notifications,
-        ops_channel=ops_channel,
-        client_channel=client_channel,
+        ops_whatsapp=_build_whatsapp_adapter(cfg, cfg.whatsapp.ops_number, log) if cfg.whatsapp.ops_number else None,
+        client_whatsapp=_build_whatsapp_adapter(cfg, cfg.whatsapp.client_number, log) if cfg.whatsapp.client_number else None,
+        ops_email=_build_email_adapter(cfg, cfg.email.ops_address, log) if cfg.email.ops_address else None,
+        client_email=_build_email_adapter(cfg, cfg.email.client_address, log) if cfg.email.client_address else None,
         logger=log,
     )
 
@@ -236,6 +237,29 @@ def _build_notifier(cfg: Config, log: Logger) -> Notifier:
 def _build_whatsapp_adapter(cfg: Config, recipient: str, log: Logger) -> WhatsAppBridgeAdapter:
     client = httpx.Client(base_url=cfg.whatsapp.api_base_url, timeout=15.0)
     return WhatsAppBridgeAdapter(client=client, recipient=recipient, logger=log)
+
+
+def _build_email_adapter(cfg: Config, recipient: str, log: Logger):
+    """Build an email channel for `recipient` using whatever provider is configured.
+
+    Provider-swap pattern: add another `elif` branch here, implement NotificationChannel
+    in a new adapters/email_<provider>.py — the Notifier above doesn't change.
+    """
+    if not cfg.email.is_configured:
+        return None
+    provider = (cfg.email.provider or "").lower()
+    if provider == "resend":
+        base_url = cfg.email.api_base_url or "https://api.resend.com"
+        client = httpx.Client(base_url=base_url, timeout=15.0)
+        return ResendEmailAdapter(
+            client=client,
+            api_key=cfg.email.api_key,
+            from_address=cfg.email.from_address,
+            recipient=recipient,
+            logger=log,
+        )
+    log.warning("unknown_email_provider", provider=provider)
+    return None
 
 
 def _build_sync_run_store(cfg: Config, log: Logger) -> SqlSyncRunStore:

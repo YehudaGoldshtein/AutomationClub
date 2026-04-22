@@ -19,8 +19,11 @@ def _clean_env(monkeypatch):
         "VENDOR_STORE_TAG",
         "WHATSAPP_API_BASE_URL", "WHATSAPP_API_TOKEN",
         "WHATSAPP_OPS_NUMBER", "WHATSAPP_CLIENT_NUMBER",
-        "EMAIL_PROVIDER", "EMAIL_FROM", "EMAIL_API_KEY", "EMAIL_NOTIFY_TO",
-        "SYNC_INTERVAL",
+        "EMAIL_PROVIDER", "EMAIL_API_BASE_URL", "EMAIL_API_KEY",
+        "EMAIL_FROM", "EMAIL_OPS_ADDRESS", "EMAIL_CLIENT_ADDRESS",
+        "NOTIFY_OPS_ENABLED", "NOTIFY_CLIENT_ENABLED",
+        "NOTIFY_WHATSAPP_ENABLED", "NOTIFY_EMAIL_ENABLED",
+        "SYNC_INTERVAL", "DATABASE_URL",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -101,28 +104,45 @@ def test_whatsapp_is_configured_requires_url_and_at_least_one_number(env_file: P
 
 
 def test_notification_routes_picked_up_dynamically(env_file: Path, monkeypatch):
-    """Adding NOTIFY_<NEW_EVENT>_TO=client should require no code change."""
+    """Adding NOTIFY_<NEW_EVENT>_TO / _VIA should require no code change."""
     monkeypatch.setenv("NOTIFY_ARCHIVE_AUDIT_TO", "client")
+    monkeypatch.setenv("NOTIFY_ARCHIVE_AUDIT_VIA", "whatsapp")
     monkeypatch.setenv("NOTIFY_SOMETHING_NEW_TO", "both")
-    monkeypatch.setenv("NOTIFY_OPS_ENABLED", "true")  # not a route, no _TO suffix
+    monkeypatch.setenv("NOTIFY_SOMETHING_NEW_VIA", "email")
+    monkeypatch.setenv("NOTIFY_OPS_ENABLED", "true")  # master switch, not a route
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.notifications.routes.get("archive_audit") == "client"
-    assert c.notifications.routes.get("something_new") == "both"
-    # The master switch is not misclassified as a route
+    r1 = c.notifications.routes.get("archive_audit")
+    r2 = c.notifications.routes.get("something_new")
+    assert r1 is not None and r1.to == "client" and r1.via == "whatsapp"
+    assert r2 is not None and r2.to == "both" and r2.via == "email"
     assert "ops_enabled" not in c.notifications.routes
 
 
-def test_notification_category_switches_default_to_enabled(env_file: Path):
+def test_notification_master_switches_default_to_enabled(env_file: Path):
     c = load(store=DotenvConfigStore(path=env_file))
     assert c.notifications.ops_enabled is True
     assert c.notifications.client_enabled is True
+    assert c.notifications.whatsapp_enabled is True
+    assert c.notifications.email_enabled is True
 
 
-def test_notification_category_switch_disabled(env_file: Path, monkeypatch):
-    monkeypatch.setenv("NOTIFY_CLIENT_ENABLED", "false")
+def test_notification_channel_master_switches_can_be_disabled(env_file: Path, monkeypatch):
+    monkeypatch.setenv("NOTIFY_WHATSAPP_ENABLED", "false")
+    monkeypatch.setenv("NOTIFY_EMAIL_ENABLED", "false")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.notifications.client_enabled is False
-    assert c.notifications.ops_enabled is True
+    assert c.notifications.whatsapp_enabled is False
+    assert c.notifications.email_enabled is False
+
+
+def test_route_with_missing_via_defaults_to_none(env_file: Path, monkeypatch):
+    """Missing VIA silences the event by default (safe default)."""
+    monkeypatch.setenv("NOTIFY_FOO_TO", "ops")
+    # no _VIA
+    c = load(store=DotenvConfigStore(path=env_file))
+    route = c.notifications.routes.get("foo")
+    assert route is not None
+    assert route.to == "ops"
+    assert route.via == "none"
 
 
 def test_whatsapp_client_number_alone_also_enables(env_file: Path, monkeypatch):
@@ -134,15 +154,20 @@ def test_whatsapp_client_number_alone_also_enables(env_file: Path, monkeypatch):
     assert c.whatsapp.ops_number is None
 
 
-def test_email_is_configured_requires_provider_from_and_notify(env_file: Path, monkeypatch):
-    monkeypatch.setenv("EMAIL_PROVIDER", "sendgrid")
-    monkeypatch.setenv("EMAIL_FROM", "me@example.com")
+def test_email_is_configured_requires_provider_key_from_and_recipient(env_file: Path, monkeypatch):
+    """Provider + api_key + from + at least one of ops/client addresses must all be present."""
+    monkeypatch.setenv("EMAIL_PROVIDER", "resend")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.email.is_configured is False
+    assert c.email.is_configured is False  # missing api_key, from, addresses
 
-    monkeypatch.setenv("EMAIL_NOTIFY_TO", "owner@example.com")
+    monkeypatch.setenv("EMAIL_API_KEY", "re_test")
+    monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
     c = load(store=DotenvConfigStore(path=env_file))
-    assert c.email.is_configured is True
+    assert c.email.is_configured is False  # still no recipient
+
+    monkeypatch.setenv("EMAIL_OPS_ADDRESS", "owner@example.com")
+    c = load(store=DotenvConfigStore(path=env_file))
+    assert c.email.is_configured is True  # ops recipient alone is enough
 
 
 def test_secret_token_never_written_to_log(tmp_path: Path):

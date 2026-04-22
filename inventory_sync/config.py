@@ -21,15 +21,26 @@ def _bool(raw: str | None, *, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
-def _collect_notification_routes(store: ConfigStore) -> dict[str, str]:
-    """Pick up every NOTIFY_<EVENT>_TO env var as a route. Adding a new event type requires only a new env var — no code change."""
-    routes: dict[str, str] = {}
+def _collect_notification_routes(store: ConfigStore) -> dict[str, RouteSpec]:
+    """Fold NOTIFY_<EVENT>_TO and NOTIFY_<EVENT>_VIA env pairs into per-event RouteSpecs.
+
+    Adding a new event needs only two env vars — no code change. Master switches like
+    NOTIFY_OPS_ENABLED are naturally skipped because they lack the _TO/_VIA suffix.
+    """
+    partial: dict[str, dict[str, str]] = {}
     for key, value in store.scan("NOTIFY_").items():
-        if not key.endswith("_TO"):
-            continue
-        event_name = key[len("NOTIFY_"):-len("_TO")].lower()
-        routes[event_name] = value
-    return routes
+        for suffix, field in (("_TO", "to"), ("_VIA", "via")):
+            if key.endswith(suffix):
+                event_name = key[len("NOTIFY_"):-len(suffix)].lower()
+                partial.setdefault(event_name, {})[field] = value
+                break
+    return {
+        event: RouteSpec(
+            to=(parts.get("to") or "none").strip().lower(),
+            via=(parts.get("via") or "none").strip().lower(),
+        )
+        for event, parts in partial.items()
+    }
 
 
 class ConfigStore(Protocol):
@@ -102,29 +113,47 @@ class WhatsAppConfig:
 
 @dataclass(frozen=True)
 class EmailConfig:
-    provider: str | None
-    from_address: str | None
+    """Generic email config. Provider-specific adapter reads api_key; interface stays the same."""
+    provider: str | None          # 'resend' for now; adapter factory keys off this
+    api_base_url: str | None      # e.g. https://api.resend.com
     api_key: str | None
-    notify_to: str | None
+    from_address: str | None
+    ops_address: str | None
+    client_address: str | None
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.provider and self.from_address and self.notify_to)
+        return bool(
+            self.provider and self.api_key and self.from_address
+            and (self.ops_address or self.client_address)
+        )
+
+
+@dataclass(frozen=True)
+class RouteSpec:
+    """Two-dimensional routing for one event: who gets it and how."""
+    to: str   # 'ops' | 'client' | 'both' | 'none'
+    via: str  # 'whatsapp' | 'email' | 'both' | 'none'
 
 
 @dataclass(frozen=True)
 class NotificationConfig:
-    """Per-category master switches plus per-event recipient routing.
+    """Two-dimensional routing per event:
+      - recipient category (ops | client | both | none)
+      - delivery channel   (whatsapp | email | both | none)
 
-    Recipients: 'ops' | 'client' | 'both' | 'none' | empty.
-    A category master switch set to False silences all events routed to it.
+    Master switches silence a whole dimension:
+      - ops_enabled / client_enabled    — recipient kill-switches
+      - whatsapp_enabled / email_enabled — channel kill-switches
     """
     ops_enabled: bool
     client_enabled: bool
-    routes: dict[str, str]  # event_type -> raw route string
+    whatsapp_enabled: bool
+    email_enabled: bool
+    routes: dict[str, RouteSpec]
 
-    def route_for(self, event_type: str) -> str:
-        return (self.routes.get(event_type) or "none").strip().lower()
+    def route_for(self, event_type: str) -> RouteSpec:
+        return self.routes.get(event_type) or RouteSpec(to="none", via="none")
 
 
 @dataclass(frozen=True)
@@ -164,13 +193,17 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
         ),
         email=EmailConfig(
             provider=store.get("EMAIL_PROVIDER"),
-            from_address=store.get("EMAIL_FROM"),
+            api_base_url=store.get("EMAIL_API_BASE_URL"),
             api_key=store.get("EMAIL_API_KEY"),
-            notify_to=store.get("EMAIL_NOTIFY_TO"),
+            from_address=store.get("EMAIL_FROM"),
+            ops_address=store.get("EMAIL_OPS_ADDRESS"),
+            client_address=store.get("EMAIL_CLIENT_ADDRESS"),
         ),
         notifications=NotificationConfig(
             ops_enabled=_bool(store.get("NOTIFY_OPS_ENABLED"), default=True),
             client_enabled=_bool(store.get("NOTIFY_CLIENT_ENABLED"), default=True),
+            whatsapp_enabled=_bool(store.get("NOTIFY_WHATSAPP_ENABLED"), default=True),
+            email_enabled=_bool(store.get("NOTIFY_EMAIL_ENABLED"), default=True),
             routes=_collect_notification_routes(store),
         ),
         sync_interval=store.get("SYNC_INTERVAL") or "hourly",

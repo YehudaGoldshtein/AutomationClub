@@ -9,6 +9,7 @@ from inventory_sync.domain import (
     SyncRun,
     VendorProductId,
 )
+from inventory_sync.engine import SyncEngine
 from inventory_sync.fakes import InMemoryNotifier, InMemoryStore, InMemorySupplier
 from inventory_sync.interfaces import (
     NotificationChannel,
@@ -38,6 +39,7 @@ __all__ = [
     "StockPolicy",
     "StorePlatform",
     "SupplierSource",
+    "SyncEngine",
     "SyncError",
     "SyncRun",
     "VendorProductId",

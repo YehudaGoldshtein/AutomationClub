@@ -113,7 +113,8 @@ class TestHappyPaths:
 
 
 class TestPartialFailures:
-    def test_vendor_missing_product_is_recorded_others_still_sync(self, log: Logger):
+    def test_vendor_missing_product_recorded_separately_from_errors(self, log: Logger):
+        """Supplier not having a SKU is catalog reality, not a sync error."""
         store = InMemoryStore(products=[
             Product(SKU("A"), VendorProductId("VA"), StockLevel(3), published=True),
             Product(SKU("B"), VendorProductId("VB-missing"), StockLevel(5), published=True),
@@ -124,8 +125,8 @@ class TestPartialFailures:
 
         run = _engine(store, supplier, log).run()
 
-        assert len(run.errors) == 1
-        assert run.errors[0].sku == SKU("B")
+        assert run.errors == []
+        assert run.vendor_missing == [SKU("B")]
         assert store.get(SKU("A")).stock == StockLevel(10)
         assert store.get(SKU("B")).stock == StockLevel(5)
 

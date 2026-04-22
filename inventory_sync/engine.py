@@ -45,26 +45,36 @@ class SyncEngine:
         if snapshots is None:
             return self._finish(run, log, aborted=True, reason="supplier unreachable")
 
+        return self._apply_decisions(run, log, products, snapshots, len(vendor_ids))
+
+    def run_with_data(self, products, snapshots) -> SyncRun:
+        """Skip fetching; decide and apply against pre-fetched data.
+
+        Useful when the caller already fetched products + snapshots (e.g., to
+        share them with a post-sync audit) and wants to avoid a second round-trip.
+        """
+        run = SyncRun()
+        log = self.logger.bind(run_id=run.run_id)
+        log.info("sync_start", mode="with_data")
+        run.items_checked = len(products)
+        return self._apply_decisions(run, log, products, snapshots, len(products))
+
+    def _apply_decisions(self, run, log, products, snapshots, requested):
         log.info(
             "vendor_snapshots_loaded",
             returned=len(snapshots),
-            requested=len(vendor_ids),
+            requested=requested,
         )
 
         for product in products:
             snapshot = snapshots.get(product.vendor_product_id)
             if snapshot is None:
-                log.warning(
+                log.info(
                     "vendor_missing_product",
                     sku=product.sku,
                     vendor_product_id=product.vendor_product_id,
                 )
-                run.errors.append(
-                    SyncError(
-                        message=f"vendor did not return snapshot for {product.vendor_product_id}",
-                        sku=product.sku,
-                    )
-                )
+                run.vendor_missing.append(product.sku)
                 continue
 
             changes = self.policy.decide(product, snapshot)
@@ -132,6 +142,7 @@ class SyncEngine:
             changes_planned=len(run.changes_planned),
             changes_applied=len(run.changes_applied),
             errors=len(run.errors),
+            vendor_missing=len(run.vendor_missing),
             duration_seconds=run.duration_seconds,
             reason=reason,
         )

@@ -15,6 +15,12 @@ class ConfigError(Exception):
     pass
 
 
+def _bool(raw: str | None, *, default: bool) -> bool:
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 class ConfigStore(Protocol):
     def get(self, key: str) -> str | None: ...
     def require(self, key: str) -> str: ...
@@ -87,11 +93,27 @@ class EmailConfig:
 
 
 @dataclass(frozen=True)
+class NotificationConfig:
+    """Per-category master switches plus per-event recipient routing.
+
+    Recipients: 'ops' | 'client' | 'both' | 'none' | empty.
+    A category master switch set to False silences all events routed to it.
+    """
+    ops_enabled: bool
+    client_enabled: bool
+    routes: dict[str, str]  # event_type -> raw route string
+
+    def route_for(self, event_type: str) -> str:
+        return (self.routes.get(event_type) or "none").strip().lower()
+
+
+@dataclass(frozen=True)
 class Config:
     shopify: ShopifyConfig
     vendor: VendorConfig
     whatsapp: WhatsAppConfig
     email: EmailConfig
+    notifications: NotificationConfig
     sync_interval: str
 
 
@@ -124,6 +146,15 @@ def load(store: ConfigStore | None = None, log: Logger | None = None) -> Config:
             from_address=store.get("EMAIL_FROM"),
             api_key=store.get("EMAIL_API_KEY"),
             notify_to=store.get("EMAIL_NOTIFY_TO"),
+        ),
+        notifications=NotificationConfig(
+            ops_enabled=_bool(store.get("NOTIFY_OPS_ENABLED"), default=True),
+            client_enabled=_bool(store.get("NOTIFY_CLIENT_ENABLED"), default=True),
+            routes={
+                "sync_error": store.get("NOTIFY_SYNC_ERROR_TO") or "",
+                "sync_summary": store.get("NOTIFY_SYNC_SUMMARY_TO") or "",
+                "archive_audit": store.get("NOTIFY_ARCHIVE_AUDIT_TO") or "",
+            },
         ),
         sync_interval=store.get("SYNC_INTERVAL") or "hourly",
     )

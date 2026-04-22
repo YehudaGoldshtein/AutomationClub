@@ -105,6 +105,7 @@ class SyncRun:
     changes_planned: list[StockChange] = field(default_factory=list)
     changes_applied: list[StockChange] = field(default_factory=list)
     errors: list[SyncError] = field(default_factory=list)
+    vendor_missing: list[SKU] = field(default_factory=list)  # vendor returned no snapshot for these SKUs
 
     def finish(self) -> None:
         self.finished_at = datetime.now(timezone.utc)

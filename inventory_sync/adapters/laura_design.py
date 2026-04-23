@@ -8,6 +8,7 @@ URL pattern: https://www.laura-design.net/<SKU> (SKU is the URL slug).
 from __future__ import annotations
 
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -133,6 +134,29 @@ def _str_or_none(value) -> str | None:
         return None
     s = str(value).strip()
     return s or None
+
+
+_SITEMAP_LOC_RE = re.compile(r"<loc>([^<]+)</loc>")
+_SITEMAP_SKU_RE = re.compile(r'laura-design\.net/(\d{4}-\d{3}[A-Z]?)(?=[/?#"\'\s<]|$)')
+
+
+def parse_laura_sitemap(xml: str) -> set[str]:
+    """Extract product SKUs from a Laura sitemap XML.
+
+    Laura product URLs look like https://www.laura-design.net/<SKU> where SKU
+    is 4 digits + '-' + 3 digits, optionally followed by a single uppercase
+    letter (e.g. '2809-021M'). URLs may have trailing slashes or query strings.
+
+    Uses regex on raw text rather than an XML parser — graceful on malformed
+    input (returns an empty set) and fast on large (743KB+) sitemaps.
+    """
+    skus: set[str] = set()
+    for loc_match in _SITEMAP_LOC_RE.finditer(xml):
+        url = loc_match.group(1)
+        sku_match = _SITEMAP_SKU_RE.search(url)
+        if sku_match:
+            skus.add(sku_match.group(1))
+    return skus
 
 
 def _first_image_url(value) -> str | None:

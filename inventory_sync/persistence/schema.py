@@ -63,3 +63,31 @@ sync_run_errors = Table(
 )
 
 Index("ix_sync_run_errors_run_id", sync_run_errors.c.run_id)
+
+
+# --- Per-item state tracking (drives delta-based notifications) ---
+
+item_state = Table(
+    "item_state", metadata,
+    Column("vendor_name", String, nullable=False),
+    Column("state_key", String, nullable=False),
+    Column("sku", String, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    # Composite PK enforces uniqueness per (vendor, state_key, sku).
+    # Rows exist only for SKUs CURRENTLY active in that state.
+    # Absent rows = not active. No is_active bool needed.
+    # Multi-vendor / future multi-customer: add customer_name column here.
+    schema=None,
+)
+from sqlalchemy import PrimaryKeyConstraint as _PK  # noqa: E402
+item_state.append_constraint(_PK(item_state.c.vendor_name, item_state.c.state_key, item_state.c.sku))
+
+
+item_state_seeded = Table(
+    "item_state_seeded", metadata,
+    Column("vendor_name", String, nullable=False),
+    Column("state_key", String, nullable=False),
+    Column("first_seeded_at", DateTime(timezone=True), nullable=False),
+)
+
+item_state_seeded.append_constraint(_PK(item_state_seeded.c.vendor_name, item_state_seeded.c.state_key))

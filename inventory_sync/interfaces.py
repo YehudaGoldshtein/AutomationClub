@@ -56,3 +56,21 @@ class SyncRunStore(Protocol):
     def save(self, run: SyncRun) -> None: ...
     def get(self, run_id: str) -> SyncRun | None: ...
     def list_recent(self, limit: int = 20) -> list[SyncRun]: ...
+
+
+class ItemStateStore(Protocol):
+    """Per-`(vendor_name, state_key, sku)` state tracking.
+
+    Used by the sync engine to detect transitions — a SKU's membership in a
+    state like 'unarchive_candidate' going from absent to present (or vice
+    versa) between runs.
+
+    `is_seeded` distinguishes 'never observed this state_key yet' (first run)
+    from 'observed and found nothing active' (legitimate empty).
+    """
+
+    def get_active_skus(self, vendor_name: str, state_key: str) -> set[str]: ...
+    def set_active(
+        self, vendor_name: str, state_key: str, skus: set[str]
+    ) -> None: ...
+    def is_seeded(self, vendor_name: str, state_key: str) -> bool: ...

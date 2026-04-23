@@ -72,3 +72,19 @@ class InMemorySyncRunStore:
             self._runs.values(), key=lambda r: r.started_at, reverse=True
         )
         return ordered[:limit]
+
+
+class InMemoryItemStateStore:
+    def __init__(self) -> None:
+        self._active: dict[tuple[str, str], set[str]] = {}
+        self._seeded: set[tuple[str, str]] = set()
+
+    def get_active_skus(self, vendor_name: str, state_key: str) -> set[str]:
+        return set(self._active.get((vendor_name, state_key), set()))
+
+    def set_active(self, vendor_name: str, state_key: str, skus: set[str]) -> None:
+        self._active[(vendor_name, state_key)] = set(skus)
+        self._seeded.add((vendor_name, state_key))
+
+    def is_seeded(self, vendor_name: str, state_key: str) -> bool:
+        return (vendor_name, state_key) in self._seeded

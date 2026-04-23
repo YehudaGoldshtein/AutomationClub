@@ -1,0 +1,62 @@
+name: hourly-sync
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # every hour on the hour (UTC)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run without writing to Shopify or sending notifications'
+        type: boolean
+        default: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Run sync
+        env:
+          # --- Shopify ---
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          # --- Vendor ---
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          # --- Email (Resend) ---
+          EMAIL_PROVIDER: resend
+          EMAIL_API_BASE_URL: https://api.resend.com
+          EMAIL_API_KEY: ${{ secrets.EMAIL_API_KEY }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          EMAIL_OPS_ADDRESS: ${{ vars.EMAIL_OPS_ADDRESS }}
+          EMAIL_CLIENT_ADDRESS: ${{ vars.EMAIL_CLIENT_ADDRESS }}
+          # --- WhatsApp disabled in cloud (bridge is localhost-only) ---
+          NOTIFY_WHATSAPP_ENABLED: 'false'
+          # --- Notification routing: email-only, both recipients ---
+          NOTIFY_OPS_ENABLED: 'true'
+          NOTIFY_CLIENT_ENABLED: 'true'
+          NOTIFY_EMAIL_ENABLED: 'true'
+          NOTIFY_SYNC_SUMMARY_TO: both
+          NOTIFY_SYNC_SUMMARY_VIA: email
+          NOTIFY_SYNC_ERROR_TO: ops
+          NOTIFY_SYNC_ERROR_VIA: email
+          # --- Persistent state (Neon / Vercel Postgres / any Postgres URL) ---
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            python -m inventory_sync sync --dry-run
+          else
+            python -m inventory_sync sync
+          fi

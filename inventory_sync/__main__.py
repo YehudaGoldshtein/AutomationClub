@@ -215,16 +215,19 @@ def _build_email_adapter(cfg: Config, recipient: str, log: Logger):
     return None
 
 
+def _build_engine(cfg: Config) -> sqlalchemy.Engine:
+    # pool_pre_ping: Neon serverless drops idle SSL connections during long vendor-fetch loops; revive silently instead of crashing.
+    return sqlalchemy.create_engine(cfg.database_url, future=True, pool_pre_ping=True)
+
+
 def _build_sync_run_store(cfg: Config, log: Logger) -> SqlSyncRunStore:
-    engine = sqlalchemy.create_engine(cfg.database_url, future=True)
-    store = SqlSyncRunStore(engine=engine, logger=log)
+    store = SqlSyncRunStore(engine=_build_engine(cfg), logger=log)
     store.create_schema()
     return store
 
 
 def _build_item_state_store(cfg: Config, log: Logger) -> SqlItemStateStore:
-    engine = sqlalchemy.create_engine(cfg.database_url, future=True)
-    store = SqlItemStateStore(engine=engine, logger=log)
+    store = SqlItemStateStore(engine=_build_engine(cfg), logger=log)
     store.create_schema()
     return store
 

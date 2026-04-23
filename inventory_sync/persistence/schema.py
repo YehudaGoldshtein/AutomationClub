@@ -27,6 +27,7 @@ metadata = MetaData()
 sync_runs = Table(
     "sync_runs", metadata,
     Column("run_id", String, primary_key=True),
+    Column("customer_id", String, nullable=False),
     Column("started_at", DateTime(timezone=True), nullable=False),
     Column("finished_at", DateTime(timezone=True), nullable=True),
     Column("items_checked", Integer, nullable=False, default=0),
@@ -38,6 +39,7 @@ sync_runs = Table(
 )
 
 Index("ix_sync_runs_started_at", sync_runs.c.started_at)
+Index("ix_sync_runs_customer_id", sync_runs.c.customer_id)
 
 
 sync_run_changes = Table(
@@ -71,28 +73,34 @@ Index("ix_sync_run_errors_run_id", sync_run_errors.c.run_id)
 
 item_state = Table(
     "item_state", metadata,
+    Column("customer_id", String, nullable=False),
     Column("vendor_name", String, nullable=False),
     Column("state_key", String, nullable=False),
     Column("sku", String, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
-    # Composite PK enforces uniqueness per (vendor, state_key, sku).
+    # Composite PK enforces uniqueness per (customer, vendor, state_key, sku).
+    # Two customers can carry the same SKU from the same vendor without collision.
     # Rows exist only for SKUs CURRENTLY active in that state.
     # Absent rows = not active. No is_active bool needed.
-    # Multi-vendor / future multi-customer: add customer_name column here.
     schema=None,
 )
 from sqlalchemy import PrimaryKeyConstraint as _PK  # noqa: E402
-item_state.append_constraint(_PK(item_state.c.vendor_name, item_state.c.state_key, item_state.c.sku))
+item_state.append_constraint(
+    _PK(item_state.c.customer_id, item_state.c.vendor_name, item_state.c.state_key, item_state.c.sku)
+)
 
 
 item_state_seeded = Table(
     "item_state_seeded", metadata,
+    Column("customer_id", String, nullable=False),
     Column("vendor_name", String, nullable=False),
     Column("state_key", String, nullable=False),
     Column("first_seeded_at", DateTime(timezone=True), nullable=False),
 )
 
-item_state_seeded.append_constraint(_PK(item_state_seeded.c.vendor_name, item_state_seeded.c.state_key))
+item_state_seeded.append_constraint(
+    _PK(item_state_seeded.c.customer_id, item_state_seeded.c.vendor_name, item_state_seeded.c.state_key)
+)
 
 
 # --- Multi-tenant customer registry ---

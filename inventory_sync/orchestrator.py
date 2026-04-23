@@ -58,9 +58,10 @@ def run_sync_pass(
     sync_run_store: SyncRunStore,
     logger: Logger,
     vendor_name: str,
+    customer_id: str,
     store_display_name: str = "your store",
 ) -> SyncRun:
-    log = logger.bind(vendor=vendor_name)
+    log = logger.bind(customer=customer_id, vendor=vendor_name)
     log.info("sync_pass_start")
 
     # 1. Fetch vendor catalog.
@@ -72,7 +73,7 @@ def run_sync_pass(
         all_products = store.list_products()
     except Exception as e:
         log.exception("store_list_failed")
-        return _abort_empty_run(sync_run_store, log, message=f"store.list_products failed: {e}")
+        return _abort_empty_run(sync_run_store, log, customer_id=customer_id, message=f"store.list_products failed: {e}")
     log.info("store_products_loaded", count=len(all_products))
 
     # 3. Pre-filter: only fetch detail for products the vendor still carries.
@@ -101,10 +102,10 @@ def run_sync_pass(
 
     # 6. Compute current unarchive-candidate set and delta vs stored.
     current = _compute_unarchive_candidates(all_products, snapshots)
-    stored = item_state_store.get_active_skus(vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE)
+    stored = item_state_store.get_active_skus(customer_id, vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE)
     added, removed = compute_delta(current=current, stored=stored)
 
-    is_first_run = not item_state_store.is_seeded(vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE)
+    is_first_run = not item_state_store.is_seeded(customer_id, vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE)
 
     log.info(
         "delta_computed",
@@ -126,9 +127,9 @@ def run_sync_pass(
         notifier.dispatch(EVENT_SYNC_SUMMARY, subject, body)
 
     # 8. Persist new state + run.
-    item_state_store.set_active(vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE, current)
+    item_state_store.set_active(customer_id, vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE, current)
     try:
-        sync_run_store.save(run)
+        sync_run_store.save(run, customer_id=customer_id)
     except Exception:
         log.exception("sync_run_persist_failed", run_id=run.run_id)
 
@@ -218,13 +219,15 @@ def _build_summary_message(
     return subject, "\n".join(lines)
 
 
-def _abort_empty_run(sync_run_store: SyncRunStore, log: Logger, *, message: str) -> SyncRun:
+def _abort_empty_run(
+    sync_run_store: SyncRunStore, log: Logger, *, customer_id: str, message: str
+) -> SyncRun:
     from inventory_sync.domain import SyncError
     run = SyncRun()
     run.errors.append(SyncError(message=message))
     run.finish()
     try:
-        sync_run_store.save(run)
+        sync_run_store.save(run, customer_id=customer_id)
     except Exception:
         log.exception("sync_run_persist_failed_on_abort", run_id=run.run_id)
     return run

@@ -55,7 +55,7 @@ class SyncRunStoreContract:
 
     def test_save_then_get(self, store: SyncRunStore):
         run = _sample_run("abc123")
-        store.save(run)
+        store.save(run, customer_id="c1")
         loaded = store.get("abc123")
         assert loaded is not None
         assert loaded.run_id == "abc123"
@@ -73,19 +73,19 @@ class SyncRunStoreContract:
     def test_list_recent_orders_by_started_at_desc(self, store: SyncRunStore):
         old = _sample_run("run-old", minutes_ago=60)
         new = _sample_run("run-new", minutes_ago=1)
-        store.save(old)
-        store.save(new)
+        store.save(old, customer_id="c1")
+        store.save(new, customer_id="c1")
         recent = store.list_recent(limit=10)
         assert [r.run_id for r in recent] == ["run-new", "run-old"]
 
     def test_list_recent_honors_limit(self, store: SyncRunStore):
         for i in range(5):
-            store.save(_sample_run(f"run-{i}", minutes_ago=i))
+            store.save(_sample_run(f"run-{i}", minutes_ago=i), customer_id="c1")
         assert len(store.list_recent(limit=3)) == 3
 
     def test_save_overwrites_existing_run(self, store: SyncRunStore):
         original = _sample_run("abc123")
-        store.save(original)
+        store.save(original, customer_id="c1")
 
         updated = _sample_run("abc123")
         updated.items_checked = 999
@@ -93,7 +93,7 @@ class SyncRunStoreContract:
             StockChange(SKU("NEW-1"), ChangeKind.SET_STOCK, StockLevel(2), "new change")
         )
         updated.changes_planned.append(updated.changes_applied[-1])
-        store.save(updated)
+        store.save(updated, customer_id="c1")
 
         loaded = store.get("abc123")
         assert loaded is not None
@@ -102,7 +102,7 @@ class SyncRunStoreContract:
 
     def test_preserves_change_kind_and_stock_level(self, store: SyncRunStore):
         run = _sample_run("abc")
-        store.save(run)
+        store.save(run, customer_id="c1")
         loaded = store.get("abc")
         assert loaded is not None
         kinds = {c.kind for c in loaded.changes_applied}
@@ -112,7 +112,7 @@ class SyncRunStoreContract:
 
     def test_preserves_errors(self, store: SyncRunStore):
         run = _sample_run("abc")
-        store.save(run)
+        store.save(run, customer_id="c1")
         loaded = store.get("abc")
         assert loaded is not None
         assert loaded.errors[0].message == "simulated flake"

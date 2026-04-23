@@ -41,8 +41,8 @@ class SqlSyncRunStore:
         metadata.create_all(self.engine)
         self.logger.info("schema_ready")
 
-    def save(self, run: SyncRun) -> None:
-        log = self.logger.bind(run_id=run.run_id)
+    def save(self, run: SyncRun, customer_id: str) -> None:
+        log = self.logger.bind(run_id=run.run_id, customer_id=customer_id)
         with Session(self.engine) as session:
             with session.begin():
                 # Upsert sync_run row — delete + insert keeps the logic simple and backend-agnostic.
@@ -51,6 +51,7 @@ class SqlSyncRunStore:
                 session.execute(delete(sync_run_errors).where(sync_run_errors.c.run_id == run.run_id))
                 session.execute(sync_runs.insert().values(
                     run_id=run.run_id,
+                    customer_id=customer_id,
                     started_at=run.started_at,
                     finished_at=run.finished_at,
                     items_checked=run.items_checked,

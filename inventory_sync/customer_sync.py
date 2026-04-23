@@ -89,6 +89,7 @@ def customer_sync_pass(
         sync_run_store=sync_run_store,
         logger=log,
         vendor_name=vendor_name,
+        customer_id=customer.id,
         store_display_name=customer.store.display_name or customer.display_name,
     )
 

@@ -62,12 +62,17 @@ class InMemoryNotifier:
 class InMemorySyncRunStore:
     def __init__(self) -> None:
         self._runs: dict[str, SyncRun] = {}
+        self._customer_of: dict[str, str] = {}
 
-    def save(self, run: SyncRun) -> None:
+    def save(self, run: SyncRun, customer_id: str) -> None:
         self._runs[run.run_id] = run
+        self._customer_of[run.run_id] = customer_id
 
     def get(self, run_id: str) -> SyncRun | None:
         return self._runs.get(run_id)
+
+    def customer_of(self, run_id: str) -> str | None:
+        return self._customer_of.get(run_id)
 
     def list_recent(self, limit: int = 20) -> list[SyncRun]:
         ordered = sorted(
@@ -78,18 +83,20 @@ class InMemorySyncRunStore:
 
 class InMemoryItemStateStore:
     def __init__(self) -> None:
-        self._active: dict[tuple[str, str], set[str]] = {}
-        self._seeded: set[tuple[str, str]] = set()
+        self._active: dict[tuple[str, str, str], set[str]] = {}
+        self._seeded: set[tuple[str, str, str]] = set()
 
-    def get_active_skus(self, vendor_name: str, state_key: str) -> set[str]:
-        return set(self._active.get((vendor_name, state_key), set()))
+    def get_active_skus(self, customer_id: str, vendor_name: str, state_key: str) -> set[str]:
+        return set(self._active.get((customer_id, vendor_name, state_key), set()))
 
-    def set_active(self, vendor_name: str, state_key: str, skus: set[str]) -> None:
-        self._active[(vendor_name, state_key)] = set(skus)
-        self._seeded.add((vendor_name, state_key))
+    def set_active(
+        self, customer_id: str, vendor_name: str, state_key: str, skus: set[str]
+    ) -> None:
+        self._active[(customer_id, vendor_name, state_key)] = set(skus)
+        self._seeded.add((customer_id, vendor_name, state_key))
 
-    def is_seeded(self, vendor_name: str, state_key: str) -> bool:
-        return (vendor_name, state_key) in self._seeded
+    def is_seeded(self, customer_id: str, vendor_name: str, state_key: str) -> bool:
+        return (customer_id, vendor_name, state_key) in self._seeded
 
 
 class InMemoryCustomerRepository:

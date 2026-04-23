@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import httpx
@@ -92,10 +93,13 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
 
     customer_repo = _build_customer_repo(cfg, log)
     _seed_customer_from_env_if_missing(customer_repo, cfg, log)
-    customers = customer_repo.list_all()
+    # Pick only customers whose sync_interval has elapsed since last_synced_at.
+    # Force-dispatched workflow runs honor this — useful when the master cron
+    # wakes up every 15 min and only a subset of customers is actually due.
+    customers = customer_repo.list_due()
     if not customers:
-        log.error("no_customers_configured")
-        return 1
+        log.info("no_customers_due")
+        return 0
 
     run_store = _build_sync_run_store(cfg, log)
     raw_item_state_store = _build_item_state_store(cfg, log)
@@ -108,9 +112,9 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
 
     worst_exit = 0
     for customer in customers:
-        raw_store = _build_shopify_adapter(cfg, log)
+        raw_store = _build_shopify_adapter_for(customer, log)
         store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
-        notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
+        notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier_for(customer, cfg, log)
 
         run = customer_sync_pass(
             customer=customer,
@@ -221,15 +225,16 @@ class _DryRunItemStateStore:
         self._inner = inner
         self._log = logger
 
-    def get_active_skus(self, vendor_name, state_key):
-        return self._inner.get_active_skus(vendor_name, state_key)
+    def get_active_skus(self, customer_id, vendor_name, state_key):
+        return self._inner.get_active_skus(customer_id, vendor_name, state_key)
 
-    def is_seeded(self, vendor_name, state_key):
-        return self._inner.is_seeded(vendor_name, state_key)
+    def is_seeded(self, customer_id, vendor_name, state_key):
+        return self._inner.is_seeded(customer_id, vendor_name, state_key)
 
-    def set_active(self, vendor_name, state_key, skus):
+    def set_active(self, customer_id, vendor_name, state_key, skus):
         self._log.info(
             "DRY_RUN_set_active_skipped",
+            customer_id=customer_id,
             vendor_name=vendor_name,
             state_key=state_key,
             sku_count=len(skus),
@@ -270,12 +275,50 @@ def _print_preview(subject: str, body: str, footer: str = "") -> None:
 
 
 def _build_shopify_adapter(cfg: Config, log: Logger) -> ShopifyAdapter:
+    """Legacy single-customer Shopify adapter (used by archive-audit command)."""
     client = httpx.Client(
         base_url=cfg.shopify.admin_api_base_url,
         headers={"X-Shopify-Access-Token": cfg.shopify.admin_api_token},
         timeout=30.0,
     )
     return ShopifyAdapter(client=client, logger=log, vendor_filter=cfg.vendor.store_tag)
+
+
+def _resolve_shopify_token(customer_id: str) -> str:
+    """Per-customer Shopify Admin token.
+
+    Convention: SHOPIFY_TOKEN_<UPPER_CUSTOMER_ID> (hyphens → underscores).
+    Falls back to the legacy SHOPIFY_ADMIN_API_TOKEN for maxbaby so existing
+    deployments keep working unchanged.
+    """
+    env_key = f"SHOPIFY_TOKEN_{customer_id.upper().replace('-', '_')}"
+    token = os.environ.get(env_key, "").strip()
+    if token:
+        return token
+    return os.environ.get("SHOPIFY_ADMIN_API_TOKEN", "").strip()
+
+
+def _build_shopify_adapter_for(customer: Customer, log: Logger) -> ShopifyAdapter:
+    """Build a Shopify adapter scoped to a specific customer."""
+    if not customer.store.myshopify_domain or not customer.store.api_version:
+        raise ValueError(
+            f"customer {customer.id!r} has incomplete Shopify config "
+            "(myshopify_domain / api_version required)"
+        )
+    token = _resolve_shopify_token(customer.id)
+    if not token:
+        raise ValueError(f"no Shopify token found for customer {customer.id!r}")
+    base_url = (
+        f"https://{customer.store.myshopify_domain}"
+        f"/admin/api/{customer.store.api_version}"
+    )
+    vendor_filter = customer.vendors[0].store_tag if customer.vendors else None
+    client = httpx.Client(
+        base_url=base_url,
+        headers={"X-Shopify-Access-Token": token},
+        timeout=30.0,
+    )
+    return ShopifyAdapter(client=client, logger=log, vendor_filter=vendor_filter)
 
 
 def _build_laura_adapter(cfg: Config, log: Logger) -> LauraDesignScraperAdapter:
@@ -289,12 +332,43 @@ def _build_laura_adapter(cfg: Config, log: Logger) -> LauraDesignScraperAdapter:
 
 
 def _build_notifier(cfg: Config, log: Logger) -> Notifier:
+    """Legacy single-customer notifier (used by archive-audit command)."""
     return Notifier(
         config=cfg.notifications,
         ops_whatsapp=_build_whatsapp_adapter(cfg, cfg.whatsapp.ops_number, log) if cfg.whatsapp.ops_number else None,
         client_whatsapp=_build_whatsapp_adapter(cfg, cfg.whatsapp.client_number, log) if cfg.whatsapp.client_number else None,
         ops_email=_build_email_adapter(cfg, cfg.email.ops_address, log) if cfg.email.ops_address else None,
         client_email=_build_email_adapter(cfg, cfg.email.client_address, log) if cfg.email.client_address else None,
+        logger=log,
+    )
+
+
+def _build_notifier_for(customer: Customer, cfg: Config, log: Logger) -> Notifier:
+    """Per-customer notifier. Routing + recipients come from customer.notifications;
+    transport credentials (bridge url+token, Resend API key) stay global in cfg."""
+    from inventory_sync.config import NotificationConfig as CfgNotifConfig, RouteSpec as CfgRouteSpec
+
+    notif = customer.notifications
+    if notif is None:
+        raise ValueError(f"customer {customer.id!r} has no notifications config")
+
+    cfg_notifications = CfgNotifConfig(
+        ops_enabled=notif.ops_enabled,
+        client_enabled=notif.client_enabled,
+        whatsapp_enabled=notif.whatsapp_enabled,
+        email_enabled=notif.email_enabled,
+        routes={name: CfgRouteSpec(to=r.to, via=r.via) for name, r in notif.routes.items()},
+    )
+
+    ops = notif.recipients.get("ops")
+    client = notif.recipients.get("client")
+
+    return Notifier(
+        config=cfg_notifications,
+        ops_whatsapp=_build_whatsapp_adapter(cfg, ops.whatsapp, log) if ops and ops.whatsapp else None,
+        client_whatsapp=_build_whatsapp_adapter(cfg, client.whatsapp, log) if client and client.whatsapp else None,
+        ops_email=_build_email_adapter(cfg, ops.email, log) if ops and ops.email else None,
+        client_email=_build_email_adapter(cfg, client.email, log) if client and client.email else None,
         logger=log,
     )
 

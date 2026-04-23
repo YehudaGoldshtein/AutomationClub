@@ -102,7 +102,7 @@ class TestSitemapPreFilter:
             notifier=notifier,
             item_state_store=InMemoryItemStateStore(),
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
         assert len(supplier.fetch_calls) == 1
         requested_ids = {str(v) for v in supplier.fetch_calls[0]}
@@ -132,15 +132,15 @@ class TestFirstRun:
             notifier=_build_notifier(log, ow=ops_wa),
             item_state_store=item_state,
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
 
         # One dispatch fired
         assert len(ops_wa.sent) == 1
         subject, body = ops_wa.sent[0]
         # State persisted
-        assert item_state.get_active_skus("laura", "unarchive_candidate") == {"A", "B"}
-        assert item_state.is_seeded("laura", "unarchive_candidate") is True
+        assert item_state.get_active_skus("c1", "laura", "unarchive_candidate") == {"A", "B"}
+        assert item_state.is_seeded("c1", "laura", "unarchive_candidate") is True
 
 
 class TestDeltaDispatch:
@@ -156,14 +156,14 @@ class TestDeltaDispatch:
         ops_wa = InMemoryNotifier()
         item_state = InMemoryItemStateStore()
         # Pre-seed as if a prior run happened
-        item_state.set_active("laura", "unarchive_candidate", {"A"})
+        item_state.set_active("c1", "laura", "unarchive_candidate", {"A"})
 
         run_sync_pass(
             store=store, supplier=supplier, policy=DefaultStockPolicy(),
             notifier=_build_notifier(log, ow=ops_wa),
             item_state_store=item_state,
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
 
         assert ops_wa.sent == []  # silent run
@@ -179,21 +179,21 @@ class TestDeltaDispatch:
         )
         ops_wa = InMemoryNotifier()
         item_state = InMemoryItemStateStore()
-        item_state.set_active("laura", "unarchive_candidate", set())  # seeded empty
+        item_state.set_active("c1", "laura", "unarchive_candidate", set())  # seeded empty
 
         run_sync_pass(
             store=store, supplier=supplier, policy=DefaultStockPolicy(),
             notifier=_build_notifier(log, ow=ops_wa),
             item_state_store=item_state,
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
 
         assert len(ops_wa.sent) == 1
         _, body = ops_wa.sent[0]
         assert "A" in body
         # State updated
-        assert item_state.get_active_skus("laura", "unarchive_candidate") == {"A"}
+        assert item_state.get_active_skus("c1", "laura", "unarchive_candidate") == {"A"}
 
     def test_newly_inactive_candidate_triggers_dispatch(self, log):
         """Previously a candidate, no longer → dispatch with resolved one."""
@@ -206,18 +206,18 @@ class TestDeltaDispatch:
         )
         ops_wa = InMemoryNotifier()
         item_state = InMemoryItemStateStore()
-        item_state.set_active("laura", "unarchive_candidate", {"A"})
+        item_state.set_active("c1", "laura", "unarchive_candidate", {"A"})
 
         run_sync_pass(
             store=store, supplier=supplier, policy=DefaultStockPolicy(),
             notifier=_build_notifier(log, ow=ops_wa),
             item_state_store=item_state,
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
 
         assert len(ops_wa.sent) == 1
-        assert item_state.get_active_skus("laura", "unarchive_candidate") == set()
+        assert item_state.get_active_skus("c1", "laura", "unarchive_candidate") == set()
 
 
 class TestStatePersistenceOnFailure:
@@ -233,14 +233,14 @@ class TestStatePersistenceOnFailure:
             snapshots={VendorProductId("VA"): _snap("VA", True)},
         )
         item_state = InMemoryItemStateStore()
-        item_state.set_active("laura", "unarchive_candidate", set())
+        item_state.set_active("c1", "laura", "unarchive_candidate", set())
 
         run_sync_pass(
             store=store, supplier=supplier, policy=DefaultStockPolicy(),
             notifier=_build_notifier(log, ow=_BrokenChannel()),
             item_state_store=item_state,
             sync_run_store=InMemorySyncRunStore(),
-            logger=log, vendor_name="laura",
+            logger=log, vendor_name="laura", customer_id="c1",
         )
 
         # State unchanged — next run will retry the delta
@@ -248,4 +248,4 @@ class TestStatePersistenceOnFailure:
         # perspective the dispatch "succeeded." Tradeoff documented in notifications.py:
         # reliability of dedup is bounded by channel-layer error visibility.
         # For now, assert the intended simpler semantic: state updates on attempted dispatch.
-        assert item_state.get_active_skus("laura", "unarchive_candidate") == {"A"}
+        assert item_state.get_active_skus("c1", "laura", "unarchive_candidate") == {"A"}

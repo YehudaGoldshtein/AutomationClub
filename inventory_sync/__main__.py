@@ -80,7 +80,10 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
     supplier = _build_laura_adapter(cfg, log)
     notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
     run_store = _build_sync_run_store(cfg, log)
-    item_state_store = _build_item_state_store(cfg, log)
+    raw_item_state_store = _build_item_state_store(cfg, log)
+    # Dry-run must not seed item_state — otherwise the first real run sees
+    # first_run=False and suppresses the initial reconciliation email.
+    item_state_store = _DryRunItemStateStore(raw_item_state_store, log) if args.dry_run else raw_item_state_store
 
     run = run_sync_pass(
         store=store,
@@ -122,6 +125,28 @@ class _DryRunStore:
 
     def republish(self, sku):
         self._log.info("DRY_RUN_republish", sku=sku)
+
+
+class _DryRunItemStateStore:
+    """Read-through, write-skip wrapper for ItemStateStore. Used in --dry-run."""
+
+    def __init__(self, inner, logger: Logger):
+        self._inner = inner
+        self._log = logger
+
+    def get_active_skus(self, vendor_name, state_key):
+        return self._inner.get_active_skus(vendor_name, state_key)
+
+    def is_seeded(self, vendor_name, state_key):
+        return self._inner.is_seeded(vendor_name, state_key)
+
+    def set_active(self, vendor_name, state_key, skus):
+        self._log.info(
+            "DRY_RUN_set_active_skipped",
+            vendor_name=vendor_name,
+            state_key=state_key,
+            sku_count=len(skus),
+        )
 
 
 def _format_sync_error_body(run) -> str:

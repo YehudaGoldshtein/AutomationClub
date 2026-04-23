@@ -22,6 +22,15 @@ from inventory_sync.audit import (
     format_archived_but_available_message,
 )
 from inventory_sync.config import Config, load as load_config
+from inventory_sync.customer_sync import customer_sync_pass
+from inventory_sync.customers import (
+    Customer,
+    CustomerNotifications,
+    CustomerStoreConfig,
+    CustomerVendorBinding,
+    Recipient,
+    RouteSpec,
+)
 from inventory_sync.engine import SyncEngine
 from inventory_sync.log import Logger, configure
 from inventory_sync.notifications import (
@@ -31,9 +40,10 @@ from inventory_sync.notifications import (
     Notifier,
     PreviewNotifier,
 )
-from inventory_sync.orchestrator import run_sync_pass
+from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
 from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
+from inventory_sync.persistence.vendor_snapshot_cache import SqlVendorSnapshotCache
 from inventory_sync.policies import DefaultStockPolicy
 
 
@@ -69,42 +79,119 @@ def cmd_archive_audit(args, log: Logger, cfg: Config) -> int:
 
 
 def cmd_sync(args, log: Logger, cfg: Config) -> int:
-    """Run one sync pass via the orchestrator.
+    """Run one sync pass for every due customer.
 
-    Sitemap pre-filter → delta-based notifications → persisted state and run history.
-    --dry-run swaps in a no-write store wrapper and a preview notifier.
+    Customers are loaded from the DB. On first boot, the legacy single-customer
+    env config is seeded as customer id=maxbaby. Vendor fetches go through a
+    shared TTL-gated cache — two customers sharing a vendor get one network round.
+
+    --dry-run swaps in a no-write store wrapper and a preview notifier, and
+    skips item_state + customer mark-synced writes.
     """
     log.info("sync_command_start", dry_run=args.dry_run)
-    raw_store = _build_shopify_adapter(cfg, log)
-    store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
-    supplier = _build_laura_adapter(cfg, log)
-    notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
+
+    customer_repo = _build_customer_repo(cfg, log)
+    _seed_customer_from_env_if_missing(customer_repo, cfg, log)
+    customers = customer_repo.list_all()
+    if not customers:
+        log.error("no_customers_configured")
+        return 1
+
     run_store = _build_sync_run_store(cfg, log)
     raw_item_state_store = _build_item_state_store(cfg, log)
-    # Dry-run must not seed item_state — otherwise the first real run sees
-    # first_run=False and suppresses the initial reconciliation email.
     item_state_store = _DryRunItemStateStore(raw_item_state_store, log) if args.dry_run else raw_item_state_store
+    cache = _build_vendor_snapshot_cache(cfg, log)
+    effective_repo = None if args.dry_run else customer_repo
 
-    run = run_sync_pass(
-        store=store,
-        supplier=supplier,
-        policy=DefaultStockPolicy(),
-        notifier=notifier,
-        item_state_store=item_state_store,
-        sync_run_store=run_store,
-        logger=log,
-        vendor_name=cfg.vendor.name,
-        store_display_name="Max Baby",
+    # Shared Laura adapter (single vendor across all current customers).
+    supplier = _build_laura_adapter(cfg, log)
+
+    worst_exit = 0
+    for customer in customers:
+        raw_store = _build_shopify_adapter(cfg, log)
+        store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
+        notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
+
+        run = customer_sync_pass(
+            customer=customer,
+            store=store,
+            supplier=supplier,
+            cache=cache,
+            policy=DefaultStockPolicy(),
+            notifier=notifier,
+            item_state_store=item_state_store,
+            sync_run_store=run_store,
+            customer_repo=effective_repo,
+            logger=log,
+        )
+
+        print(f"customer={customer.id}  run_id={run.run_id}"
+              f"  items_checked={run.items_checked}"
+              f"  changes_planned={len(run.changes_planned)}"
+              f"  changes_applied={len(run.changes_applied)}"
+              f"  errors={len(run.errors)}"
+              f"  vendor_missing={len(run.vendor_missing)}"
+              f"  duration={run.duration_seconds:.1f}s"
+              f"  dry_run={args.dry_run}")
+        if run.errors:
+            worst_exit = 1
+    return worst_exit
+
+
+def _seed_customer_from_env_if_missing(
+    repo: SqlCustomerRepository, cfg: Config, log: Logger
+) -> None:
+    """Bootstrap: if no customers exist, seed 'maxbaby' from the env config.
+
+    Idempotent — re-runs upsert (preserves last_synced_at) or does nothing if
+    the customer already exists. Env remains the source of truth for secrets;
+    this only populates non-secret config.
+    """
+    if repo.get("maxbaby") is not None:
+        return
+    notifications = CustomerNotifications(
+        ops_enabled=cfg.notifications.ops_enabled,
+        client_enabled=cfg.notifications.client_enabled,
+        whatsapp_enabled=cfg.notifications.whatsapp_enabled,
+        email_enabled=cfg.notifications.email_enabled,
+        recipients={
+            "ops": Recipient(
+                whatsapp=cfg.whatsapp.ops_number,
+                email=cfg.email.ops_address,
+            ),
+            "client": Recipient(
+                whatsapp=cfg.whatsapp.client_number,
+                email=cfg.email.client_address,
+            ),
+        },
+        routes={
+            name: RouteSpec(to=r.to, via=r.via)
+            for name, r in cfg.notifications.routes.items()
+        },
     )
-
-    print(f"run_id={run.run_id}  items_checked={run.items_checked}"
-          f"  changes_planned={len(run.changes_planned)}"
-          f"  changes_applied={len(run.changes_applied)}"
-          f"  errors={len(run.errors)}"
-          f"  vendor_missing={len(run.vendor_missing)}"
-          f"  duration={run.duration_seconds:.1f}s"
-          f"  dry_run={args.dry_run}")
-    return 0 if not run.errors else 1
+    customer = Customer(
+        id="maxbaby",
+        display_name="Max Baby",
+        sync_interval_minutes=60,
+        last_synced_at=None,
+        store=CustomerStoreConfig(
+            platform="shopify",
+            store_url=cfg.shopify.store_url,
+            myshopify_domain=cfg.shopify.myshopify_domain,
+            api_version=cfg.shopify.api_version,
+            display_name="Max Baby",
+        ),
+        vendors=[
+            CustomerVendorBinding(
+                name=cfg.vendor.name,
+                url=cfg.vendor.url,
+                store_tag=cfg.vendor.store_tag,
+            )
+        ],
+        notifications=notifications,
+    )
+    repo.upsert(customer)
+    log.info("seeded_customer_from_env", customer_id="maxbaby")
 
 
 class _DryRunStore:
@@ -258,6 +345,18 @@ def _build_item_state_store(cfg: Config, log: Logger) -> SqlItemStateStore:
     store = SqlItemStateStore(engine=_build_engine(cfg), logger=log)
     store.create_schema()
     return store
+
+
+def _build_customer_repo(cfg: Config, log: Logger) -> SqlCustomerRepository:
+    repo = SqlCustomerRepository(engine=_build_engine(cfg), logger=log)
+    repo.create_schema()
+    return repo
+
+
+def _build_vendor_snapshot_cache(cfg: Config, log: Logger) -> SqlVendorSnapshotCache:
+    cache = SqlVendorSnapshotCache(engine=_build_engine(cfg), logger=log)
+    cache.create_schema()
+    return cache
 
 
 def main(argv: list[str] | None = None) -> int:

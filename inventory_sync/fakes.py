@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
+from inventory_sync.customers import Customer
 from inventory_sync.domain import (
     SKU,
     Product,
@@ -88,3 +90,86 @@ class InMemoryItemStateStore:
 
     def is_seeded(self, vendor_name: str, state_key: str) -> bool:
         return (vendor_name, state_key) in self._seeded
+
+
+class InMemoryCustomerRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[str, Customer] = {}
+
+    def get(self, customer_id: str) -> Customer | None:
+        return self._by_id.get(customer_id)
+
+    def list_all(self) -> list[Customer]:
+        return sorted(self._by_id.values(), key=lambda c: c.id)
+
+    def list_due(self, now: datetime | None = None) -> list[Customer]:
+        now = now or datetime.now(timezone.utc)
+        out: list[Customer] = []
+        for c in self.list_all():
+            if c.last_synced_at is None:
+                out.append(c)
+                continue
+            if c.last_synced_at + timedelta(minutes=c.sync_interval_minutes) <= now:
+                out.append(c)
+        return out
+
+    def upsert(self, customer: Customer) -> None:
+        existing = self._by_id.get(customer.id)
+        if existing is not None:
+            customer = Customer(
+                id=customer.id,
+                display_name=customer.display_name,
+                sync_interval_minutes=customer.sync_interval_minutes,
+                last_synced_at=existing.last_synced_at,
+                store=customer.store,
+                vendors=customer.vendors,
+                notifications=customer.notifications,
+            )
+        self._by_id[customer.id] = customer
+
+    def mark_synced(self, customer_id: str, when: datetime | None = None) -> None:
+        when = when or datetime.now(timezone.utc)
+        c = self._by_id[customer_id]
+        self._by_id[customer_id] = Customer(
+            id=c.id,
+            display_name=c.display_name,
+            sync_interval_minutes=c.sync_interval_minutes,
+            last_synced_at=when,
+            store=c.store,
+            vendors=c.vendors,
+            notifications=c.notifications,
+        )
+
+
+class InMemoryVendorSnapshotCache:
+    def __init__(self) -> None:
+        self._rows: dict[tuple[str, str], tuple[datetime, VendorProductSnapshot]] = {}
+
+    def get_fresh(
+        self,
+        vendor_name: str,
+        ids: Iterable[str],
+        ttl_minutes: int,
+        now: datetime | None = None,
+    ) -> dict[str, VendorProductSnapshot]:
+        now = now or datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=ttl_minutes)
+        out: dict[str, VendorProductSnapshot] = {}
+        for vid in ids:
+            entry = self._rows.get((vendor_name, vid))
+            if entry is None:
+                continue
+            fetched_at, snap = entry
+            if fetched_at >= cutoff:
+                out[vid] = snap
+        return out
+
+    def upsert_many(
+        self,
+        vendor_name: str,
+        snapshots: dict[str, VendorProductSnapshot],
+        now: datetime | None = None,
+    ) -> None:
+        now = now or datetime.now(timezone.utc)
+        for vid, snap in snapshots.items():
+            self._rows[(vendor_name, vid)] = (now, snap)

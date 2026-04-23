@@ -14,8 +14,10 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    Numeric,
     String,
     Table,
+    Text,
 )
 
 
@@ -91,3 +93,45 @@ item_state_seeded = Table(
 )
 
 item_state_seeded.append_constraint(_PK(item_state_seeded.c.vendor_name, item_state_seeded.c.state_key))
+
+
+# --- Multi-tenant customer registry ---
+
+customers = Table(
+    "customers", metadata,
+    Column("id", String, primary_key=True),             # short slug, e.g. "maxbaby"
+    Column("display_name", String, nullable=False),
+    Column("sync_interval_minutes", Integer, nullable=False, default=60),
+    Column("last_synced_at", DateTime(timezone=True), nullable=True),
+    # Full customer config (store platform, vendors, notification routing, recipients).
+    # Secrets are NOT stored here — resolved from env per deployment.
+    Column("config_json", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("ix_customers_last_synced_at", customers.c.last_synced_at)
+
+
+# --- Shared vendor snapshot cache ---
+# Global: one row per (vendor, product). Many customers can read the same row.
+# TTL gate is applied in code (vendor_scan_pass), not in the schema.
+
+vendor_snapshot_cache = Table(
+    "vendor_snapshot_cache", metadata,
+    Column("vendor_name", String, nullable=False),
+    Column("vendor_product_id", String, nullable=False),
+    Column("fetched_at", DateTime(timezone=True), nullable=False),
+    Column("is_available", Boolean, nullable=False),
+    Column("stock_count", Integer, nullable=True),
+    Column("raw_availability", String, nullable=True),
+    Column("name", String, nullable=True),
+    Column("price", Numeric(12, 2), nullable=True),
+    Column("currency", String, nullable=True),
+    Column("image_url", String, nullable=True),
+)
+
+vendor_snapshot_cache.append_constraint(
+    _PK(vendor_snapshot_cache.c.vendor_name, vendor_snapshot_cache.c.vendor_product_id)
+)
+Index("ix_vendor_snapshot_cache_fetched_at", vendor_snapshot_cache.c.fetched_at)

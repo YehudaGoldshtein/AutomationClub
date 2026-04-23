@@ -42,16 +42,20 @@ jobs:
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
           EMAIL_OPS_ADDRESS: ${{ vars.EMAIL_OPS_ADDRESS }}
           EMAIL_CLIENT_ADDRESS: ${{ vars.EMAIL_CLIENT_ADDRESS }}
-          # --- WhatsApp disabled in cloud (bridge is localhost-only) ---
-          NOTIFY_WHATSAPP_ENABLED: 'false'
-          # --- Notification routing: email-only, both recipients ---
+          # --- WhatsApp via wa-notifier-yehuda.fly.dev microservice ---
+          WHATSAPP_API_BASE_URL: ${{ vars.WHATSAPP_API_BASE_URL }}
+          WHATSAPP_API_TOKEN: ${{ secrets.WHATSAPP_API_TOKEN }}
+          WHATSAPP_OPS_NUMBER: ${{ vars.WHATSAPP_OPS_NUMBER }}
+          WHATSAPP_CLIENT_NUMBER: ${{ vars.WHATSAPP_CLIENT_NUMBER }}
+          NOTIFY_WHATSAPP_ENABLED: 'true'
+          # --- Notification routing: summaries via both channels, errors via WA (fast) ---
           NOTIFY_OPS_ENABLED: 'true'
           NOTIFY_CLIENT_ENABLED: 'true'
           NOTIFY_EMAIL_ENABLED: 'true'
           NOTIFY_SYNC_SUMMARY_TO: both
-          NOTIFY_SYNC_SUMMARY_VIA: email
+          NOTIFY_SYNC_SUMMARY_VIA: both
           NOTIFY_SYNC_ERROR_TO: ops
-          NOTIFY_SYNC_ERROR_VIA: email
+          NOTIFY_SYNC_ERROR_VIA: whatsapp
           # --- Persistent state (Neon / Vercel Postgres / any Postgres URL) ---
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |

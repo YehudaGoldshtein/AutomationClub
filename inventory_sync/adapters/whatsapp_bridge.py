@@ -1,13 +1,15 @@
-"""WhatsApp notification adapter backed by the whatsapp-mcp Go bridge.
+"""WhatsApp notification adapter backed by the whatsapp-notifier-bridge microservice.
 
 Implements NotificationChannel. Posts to the bridge's HTTP API (the bridge
-holds the WhatsApp session; this adapter is a thin client). The bridge is a
-long-lived process shared with the dating-crm project — we do not import any
-of its Python code, only hit its HTTP endpoint.
+holds the WhatsApp session; this adapter is a thin client).
 
 Bridge protocol:
-    POST <base>/send  { recipient: "<phone or jid>", message: "<text>" }
-    -> 200 { success: bool, message: str, jid: str }
+    POST <base>/send  { recipient: "<phone>", message: "<text>" }
+    -> 200 { ok: true,  message_id: "<id>" }
+    -> 4xx/5xx { ok: false, error: "<reason>" }
+
+The Bearer token is attached to httpx.Client.headers by the caller (see
+_build_whatsapp_adapter in __main__.py).
 """
 from __future__ import annotations
 
@@ -48,12 +50,12 @@ class WhatsAppBridgeAdapter:
             log.exception("whatsapp_send_bad_json")
             raise WhatsAppBridgeError("bridge returned invalid JSON") from e
 
-        if not payload.get("success"):
-            message = payload.get("message", "unknown bridge error")
+        if not payload.get("ok"):
+            message = payload.get("error", "unknown bridge error")
             log.error("whatsapp_send_unsuccessful", bridge_message=message)
             raise WhatsAppBridgeError(f"bridge reported failure: {message}")
 
-        log.info("whatsapp_sent", jid=payload.get("jid"), subject=subject)
+        log.info("whatsapp_sent", message_id=payload.get("message_id"), subject=subject)
 
     @staticmethod
     def _format(subject: str, body: str) -> str:

@@ -213,7 +213,10 @@ def _build_notifier(cfg: Config, log: Logger) -> Notifier:
 
 
 def _build_whatsapp_adapter(cfg: Config, recipient: str, log: Logger) -> WhatsAppBridgeAdapter:
-    client = httpx.Client(base_url=cfg.whatsapp.api_base_url, timeout=15.0)
+    headers = {}
+    if cfg.whatsapp.api_token:
+        headers["Authorization"] = f"Bearer {cfg.whatsapp.api_token}"
+    client = httpx.Client(base_url=cfg.whatsapp.api_base_url, headers=headers, timeout=15.0)
     return WhatsAppBridgeAdapter(client=client, recipient=recipient, logger=log)
 
 

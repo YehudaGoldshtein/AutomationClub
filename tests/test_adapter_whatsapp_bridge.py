@@ -27,7 +27,7 @@ def _success_handler(captured: list) -> callable:
             "body": _json.loads(request.content.decode()),
         })
         return httpx.Response(
-            200, json={"success": True, "message": "sent", "jid": "972504265054@s.whatsapp.net"}
+            200, json={"ok": True, "message_id": "3EB0ABC123"}
         )
     return handler
 
@@ -75,7 +75,7 @@ class TestFailures:
 
     def test_bridge_reports_unsuccessful_raises(self):
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"success": False, "message": "not connected"})
+            return httpx.Response(200, json={"ok": False, "error": "not connected"})
 
         adapter = _make_adapter(handler)
         with pytest.raises(WhatsAppBridgeError, match="not connected"):
@@ -104,5 +104,5 @@ class TestWhatsAppBridgeSatisfiesNotifierContract(NotifierContract):
     @pytest.fixture
     def notifier(self) -> WhatsAppBridgeAdapter:
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, json={"success": True, "message": "sent", "jid": "x@x"})
+            return httpx.Response(200, json={"ok": True, "message_id": "3EB0XXX"})
         return _make_adapter(handler)

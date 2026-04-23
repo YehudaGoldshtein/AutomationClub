@@ -17,7 +17,6 @@ from inventory_sync.adapters.email_resend import ResendEmailAdapter
 from inventory_sync.adapters.laura_design import LauraDesignScraperAdapter
 from inventory_sync.adapters.shopify import ShopifyAdapter
 from inventory_sync.adapters.whatsapp_bridge import WhatsAppBridgeAdapter
-from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.audit import (
     find_archived_but_available,
     format_archived_but_available_message,
@@ -32,6 +31,9 @@ from inventory_sync.notifications import (
     Notifier,
     PreviewNotifier,
 )
+from inventory_sync.orchestrator import run_sync_pass
+from inventory_sync.persistence.item_state_store import SqlItemStateStore
+from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.policies import DefaultStockPolicy
 
 
@@ -67,87 +69,38 @@ def cmd_archive_audit(args, log: Logger, cfg: Config) -> int:
 
 
 def cmd_sync(args, log: Logger, cfg: Config) -> int:
-    """Run one sync pass: fetch once, stock-sync + audit on shared data, notify per config."""
+    """Run one sync pass via the orchestrator.
+
+    Sitemap pre-filter → delta-based notifications → persisted state and run history.
+    --dry-run swaps in a no-write store wrapper and a preview notifier.
+    """
     log.info("sync_command_start", dry_run=args.dry_run)
-    store = _build_shopify_adapter(cfg, log)
+    raw_store = _build_shopify_adapter(cfg, log)
+    store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
     supplier = _build_laura_adapter(cfg, log)
     notifier = PreviewNotifier(logger=log) if args.dry_run else _build_notifier(cfg, log)
     run_store = _build_sync_run_store(cfg, log)
+    item_state_store = _build_item_state_store(cfg, log)
 
-    # Share one fetch across sync and audit.
-    try:
-        products = store.list_products()
-    except Exception as e:
-        log.exception("sync_fetch_store_failed")
-        notifier.dispatch(
-            EVENT_SYNC_ERROR,
-            "Inventory sync aborted",
-            f"Could not read store catalog: {e}",
-        )
-        return 1
-
-    vendor_ids = [p.vendor_product_id for p in products]
-    try:
-        snapshots = supplier.fetch_snapshots(vendor_ids)
-    except Exception as e:
-        log.exception("sync_fetch_supplier_failed")
-        notifier.dispatch(
-            EVENT_SYNC_ERROR,
-            "Inventory sync aborted",
-            f"Could not read supplier: {e}",
-        )
-        return 1
-
-    # Stock sync.
-    engine = SyncEngine(
-        store=_DryRunStore(store, log) if args.dry_run else store,
+    run = run_sync_pass(
+        store=store,
         supplier=supplier,
         policy=DefaultStockPolicy(),
+        notifier=notifier,
+        item_state_store=item_state_store,
+        sync_run_store=run_store,
         logger=log,
+        vendor_name=cfg.vendor.name,
+        store_display_name="Max Baby",
     )
-    run = engine.run_with_data(products, snapshots)
 
-    # Post-sync audit on the same data (no extra fetches).
-    archived = [p for p in products if not p.published]
-    findings = []
-    for p in archived:
-        snap = snapshots.get(p.vendor_product_id)
-        if snap and snap.is_available:
-            from inventory_sync.audit import AuditFinding
-            findings.append(AuditFinding(product=p, snapshot=snap))
-    log.info("audit_post_sync", archived=len(archived), findings=len(findings))
-
-    # Notifications.
-    if run.errors:
-        notifier.dispatch(
-            EVENT_SYNC_ERROR,
-            f"Sync run {run.run_id} had {len(run.errors)} error(s)",
-            _format_sync_error_body(run),
-        )
-    notifier.dispatch(
-        EVENT_SYNC_SUMMARY,
-        f"Sync summary {run.run_id}",
-        _format_sync_summary(run, findings_count=len(findings), dry_run=args.dry_run),
-    )
-    if findings:
-        subject, body = format_archived_but_available_message(findings, store_name="Max Baby")
-        notifier.dispatch(EVENT_ARCHIVE_AUDIT, subject, body)
-
-    # Persist the run (never crashes sync on storage failure; log and continue).
-    try:
-        run_store.save(run)
-    except Exception:
-        log.exception("sync_run_persist_failed", run_id=run.run_id)
-
-    # Stdout summary for the operator running the command.
     print(f"run_id={run.run_id}  items_checked={run.items_checked}"
           f"  changes_planned={len(run.changes_planned)}"
           f"  changes_applied={len(run.changes_applied)}"
           f"  errors={len(run.errors)}"
           f"  vendor_missing={len(run.vendor_missing)}"
           f"  duration={run.duration_seconds:.1f}s"
-          f"  dry_run={args.dry_run}"
-          f"  audit_findings={len(findings)}")
+          f"  dry_run={args.dry_run}")
     return 0 if not run.errors else 1
 
 
@@ -265,6 +218,13 @@ def _build_email_adapter(cfg: Config, recipient: str, log: Logger):
 def _build_sync_run_store(cfg: Config, log: Logger) -> SqlSyncRunStore:
     engine = sqlalchemy.create_engine(cfg.database_url, future=True)
     store = SqlSyncRunStore(engine=engine, logger=log)
+    store.create_schema()
+    return store
+
+
+def _build_item_state_store(cfg: Config, log: Logger) -> SqlItemStateStore:
+    engine = sqlalchemy.create_engine(cfg.database_url, future=True)
+    store = SqlItemStateStore(engine=engine, logger=log)
     store.create_schema()
     return store
 

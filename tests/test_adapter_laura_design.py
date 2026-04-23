@@ -163,6 +163,38 @@ class TestFetchSnapshotErrors:
         assert snapshots == {}
 
 
+class TestFetchCatalogSkus:
+    def test_fetches_and_parses_sitemap(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path.endswith("/sitemap.xml")
+            xml = (
+                '<?xml version="1.0"?><urlset>'
+                '<url><loc>https://www.laura-design.net/2800-253</loc></url>'
+                '<url><loc>https://www.laura-design.net/1603-135</loc></url>'
+                '<url><loc>https://www.laura-design.net/about</loc></url>'
+                '</urlset>'
+            )
+            return httpx.Response(200, text=xml)
+
+        adapter = _make_adapter(handler)
+        skus = adapter.fetch_catalog_skus()
+        assert skus == {"2800-253", "1603-135"}
+
+    def test_non_200_returns_empty_set(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500)
+
+        adapter = _make_adapter(handler)
+        assert adapter.fetch_catalog_skus() == set()
+
+    def test_network_error_returns_empty_set(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("unreachable")
+
+        adapter = _make_adapter(handler)
+        assert adapter.fetch_catalog_skus() == set()
+
+
 class TestLauraDesignSatisfiesSupplierContract(SupplierContract):
     """Re-run the SupplierSource contract tests against the Laura adapter.
 

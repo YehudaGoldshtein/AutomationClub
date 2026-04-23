@@ -31,6 +31,25 @@ class LauraDesignScraperAdapter:
     base_url: str = "https://www.laura-design.net"
     max_workers: int = 4  # concurrent fetches; httpx.Client is thread-safe for reads. 4 is as fast as 8 or 16 against Laura — lighter on their server, lower risk of tripping rate limits.
 
+    def fetch_catalog_skus(self) -> set[str]:
+        """Fetch Laura's sitemap and return the set of all product SKUs it lists.
+
+        Used as a pre-filter: any Max-Baby SKU not in this set is definitively
+        no longer in Laura's catalog, so we don't need to fetch its detail page.
+        """
+        url = f"{self.base_url}/sitemap.xml"
+        try:
+            resp = self.client.get(url)
+        except Exception:
+            self.logger.exception("sitemap_fetch_failed", url=url)
+            return set()
+        if resp.status_code != 200:
+            self.logger.warning("sitemap_bad_status", status=resp.status_code, url=url)
+            return set()
+        skus = parse_laura_sitemap(resp.text)
+        self.logger.info("sitemap_fetched", sku_count=len(skus))
+        return skus
+
     def fetch_snapshots(
         self, ids: Iterable[VendorProductId]
     ) -> dict[VendorProductId, VendorProductSnapshot]:

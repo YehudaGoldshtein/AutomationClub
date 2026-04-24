@@ -25,8 +25,8 @@ platform, vendor, channel, or sink is a new adapter, not a rewrite.
 Structured logs hit rotating files + stdout. Every adapter, engine step, and
 notification dispatch logs its outcome. There is no "we'll add logging later."
 Logging is infrastructure, and it shipped in v0.1 before anything else. The
-logger itself is a `Logger` interface, so swapping to Datadog/Axiom later is
-one adapter change.
+logger itself is a `Logger` interface, so swapping to Datadog/Axiom later was
+one adapter change — and it already happened (see **Observability** below).
 
 ### 🏢 Row-level multi-tenancy
 
@@ -40,29 +40,37 @@ can be layered on later without schema changes.
 ## Deployment topology
 
 ```
-                        ┌──────────────────────────────┐
-                        │ GitHub Actions (hourly cron) │
-                        │   .github/workflows/sync.yml │
-                        └──────────────┬───────────────┘
-                                       │  python -m inventory_sync sync
-                                       ▼
-                ┌──────────────────────────────────────────┐
-                │  inventory_sync CLI — fresh container    │
-                │  per tick; no long-running state         │
-                └┬──────────────┬─────────────┬─────────┬──┘
-                 │              │             │         │
-                 ▼              ▼             ▼         ▼
-        ┌────────────┐  ┌──────────────┐ ┌─────────┐ ┌─────────────────────┐
-        │ Shopify    │  │ Vendor sites │ │ Resend  │ │ wa-notifier-bridge  │
-        │ Admin API  │  │ (Laura etc)  │ │  HTTPS  │ │ (Fly.io, Go)        │
-        │ per-cust.  │  │  scrape      │ │ email   │ │ POST /api/send      │
-        └────────────┘  └──────────────┘ └─────────┘ └─────────────────────┘
-                                       │
-                                       ▼
-                        ┌──────────────────────────────┐
-                        │ Neon Postgres (state, cache, │
-                        │  run history, customers)     │
-                        └──────────────────────────────┘
+   ┌──────────────────────────────┐            ┌───────────────────────────────┐
+   │ GitHub Actions (hourly cron) │            │ automationclub-dashboard      │
+   │   .github/workflows/sync.yml │            │ (Vercel, Next.js 16)          │
+   │   +  workflow_dispatch       │◄───────────│ admin + per-customer UI       │
+   │      (Trigger-Sync button)   │  POST      │ Auth.js credentials login     │
+   └──────────────┬───────────────┘  /dispatch └──────────────┬────────────────┘
+                  │                                           │ read-only
+                  │  python -m inventory_sync sync            │ Drizzle ORM
+                  ▼                                           │
+    ┌──────────────────────────────────────────┐              │
+    │  inventory_sync CLI — fresh container    │              │
+    │  per tick; no long-running state         │              │
+    └┬────────────┬───────────┬───────────┬────┘              │
+     │            │           │           │                   │
+     ▼            ▼           ▼           ▼                   ▼
+ ┌────────┐ ┌──────────┐ ┌────────┐ ┌──────────────────┐ ┌─────────────────────┐
+ │Shopify │ │Vendor    │ │Resend  │ │wa-notifier-bridge│ │Neon Postgres        │
+ │Admin   │ │sites     │ │HTTPS   │ │(Fly.io, Go)      │ │state, cache, runs,  │
+ │API     │ │(scrape)  │ │email   │ │POST /api/send    │ │customers,           │
+ │per-    │ │          │ │        │ │(+ customer_id)   │ │store_products,      │
+ │cust.   │ │          │ │        │ │                  │ │users                │
+ └────────┘ └──────────┘ └────────┘ └──────────────────┘ └─────────────────────┘
+     │          │           │           │                   ▲
+     │          │           │           │                   │
+     └──────────┴───────────┴───────────┴─────── structured logs ──┐
+                                                                    ▼
+                                               ┌───────────────────────────────┐
+                                               │  Axiom (one dataset, three    │
+                                               │  services). Cross-service     │
+                                               │  filter: `customer_id == …`   │
+                                               └───────────────────────────────┘
 ```
 
 **Why GitHub Actions, not a long-running server:** sync is a scheduled batch
@@ -73,6 +81,10 @@ Neon.
 **Why Fly for the bridge:** WhatsApp Web needs a long-lived WebSocket + a
 session SQLite on persistent disk. Serverless can't host that. The bridge is
 one instance, one WhatsApp number, many caller tokens (multi-tenant).
+
+**Why Vercel for the dashboard:** UI is stateless — all it does is read Neon
+and dispatch a workflow. Serverless is the right fit, and Vercel gives
+zero-config previews per PR.
 
 ---
 
@@ -107,11 +119,13 @@ A single `python -m inventory_sync sync` invocation:
           ┌──────────────────────────────────────────────────────────┐
           │  orchestrator.run_sync_pass(customer_id, vendor, …)      │
           │   a. fetch store products + catalog-filter via sitemap   │
-          │   b. engine applies stock policy (set-stock / un/rep.)   │
-          │   c. compute unarchive-candidate delta vs item_state     │
-          │   d. dispatch aggregated summary (first-run / delta /    │
+          │   b. upsert store_products (handle, title, product_id)   │
+          │      so the dashboard can build deep links               │
+          │   c. engine applies stock policy (set-stock / un/rep.)   │
+          │   d. compute unarchive-candidate delta vs item_state     │
+          │   e. dispatch aggregated summary (first-run / delta /    │
           │      errors) per customer.notifications routing          │
-          │   e. persist new item_state + sync_run                   │
+          │   f. persist new item_state + sync_run + sync_run_changes│
           └──────────────────────────┬───────────────────────────────┘
                                      ▼
                     customers.mark_synced(customer_id, now)
@@ -144,8 +158,9 @@ are selected via config, never by `if` branches in callers.
 | Sync run store | `SyncRunStore` | `SqlSyncRunStore` (SQLAlchemy Core) | S3 snapshot, external log service |
 | Item state store | `ItemStateStore` | `SqlItemStateStore` | same |
 | Customer repository | `CustomerRepository` | `SqlCustomerRepository` | admin-UI-backed |
+| Store product store | `StoreProductStore` | `SqlStoreProductStore` | — (cache of Shopify handles for deep links) |
 | Vendor snapshot cache | `VendorSnapshotCache` | `SqlVendorSnapshotCache` | Redis, in-memory (fakes for tests) |
-| Logger | `Logger` | `StdlibLogger` (rotating files + stdout) | Datadog, Axiom (token stashed in .env) |
+| Logger | `Logger` | `StdlibLogger` (rotating files + stdout) + `AxiomBatchHandler` when `AXIOM_*` env set | Datadog, OTel |
 
 Every interface has an `InMemory*` fake under `inventory_sync/fakes.py` for
 unit tests; contract tests run the same suite against the fake and the real
@@ -165,6 +180,7 @@ SQL adapter to prove drop-in equivalence.
 | `sync_runs` | `(run_id)` + `customer_id` index | Run history. Joins to `sync_run_changes` and `sync_run_errors` on `run_id`. |
 | `sync_run_changes` | autoincrement | Every planned + applied `StockChange` for a run. |
 | `sync_run_errors` | autoincrement | Every error from a run, with optional `sku`. |
+| `store_products` | `(customer_id, sku)` | Shopify handle + title + product-id per SKU. Written every sync pass; read by the dashboard to build storefront and admin deep links. |
 
 ### Global tables (shared across tenants)
 
@@ -172,11 +188,52 @@ SQL adapter to prove drop-in equivalence.
 |---|---|---|
 | `vendor_snapshot_cache` | `(vendor_name, vendor_product_id)` | Shared vendor data. One row per product per vendor, with `fetched_at` for TTL gating. Customers sharing a vendor amortize the scan cost. |
 
+### Dashboard-owned tables
+
+| Table | Primary key | Purpose |
+|---|---|---|
+| `users` | `(id)` | Dashboard accounts. `role` ∈ {admin, customer}; customer rows carry `customer_id` for tenant scoping. Email lowercased on insert + auth. Password hashed with bcrypt. Not touched by the Python sync; owned by `automationclub-dashboard`. |
+
 ### Key invariants
 
 - `item_state` rows exist **only** for currently-active SKUs. Absence = inactive. No `is_active` boolean.
 - `vendor_snapshot_cache.fetched_at` is the freshness authority — TTL is applied in code (`vendor_scan_pass`), not in the schema, so different callers can choose different tolerances.
 - `customers.last_synced_at` is written only by `mark_synced`, never clobbered by config `upsert`.
+- `store_products` is a write-through cache of Shopify metadata. Rows survive between runs so deep links still work even if a SKU isn't touched on a given sync.
+
+---
+
+## Dashboard
+
+Standalone Next.js app (`automationclub-dashboard`, Vercel). Read-only over
+the shared Neon database, plus one write path: `workflow_dispatch` to
+`AutomationClub/.github/workflows/sync.yml`.
+
+**Auth (Auth.js v5 credentials, JWT sessions).** `auth.ts` authorizes against
+the dashboard-owned `users` table; bcrypt-compared passwords. Session carries
+`{ role, customerId }`. `middleware.ts` gates everything except `/login` and
+`/api/auth/*`.
+
+**Tenant isolation (`lib/auth-helpers.ts`).** `resolveCustomerScope(requested)`
+hard-forces `customer`-role users to their own `customerId` regardless of the
+URL. Admin can view any customer. The dashboard never trusts URL params for
+authorization — every route resolves scope server-side.
+
+**Routes.**
+
+| Path | Purpose |
+|---|---|
+| `/login` | Server-action credentials form, redirects `?next=` after login. |
+| `/` | Admin → customer list. Customer → `/c/{own id}`. |
+| `/c/[customerId]` | Customer home: last sync time, trigger button, summary. |
+| `/c/[customerId]/runs` | Run history with expandable rows (`RunRow.tsx`) — each expansion calls `/api/runs/[runId]/changes` and renders SKU + name + image + storefront + admin deep links. |
+| `/c/[customerId]/state` | Current `item_state` per vendor/key. |
+| `/api/sync/trigger` | `POST` → GitHub `workflow_dispatch` with the customer id as input. Enforces scope (customer can only trigger their own). |
+| `/api/runs/[runId]/changes` | JSON, joins `sync_run_changes` + `store_products` so UI can build links without a second round trip. |
+
+**GitHub token.** Fine-grained PAT with `actions:write` scoped to only the
+AutomationClub repo, stored as a Sensitive Vercel env var. Never exposed to
+the browser — the trigger endpoint runs server-side.
 
 ---
 
@@ -186,7 +243,10 @@ SQL adapter to prove drop-in equivalence.
 bindings (name, URL, `store_tag`), notification routing (per-event to/via +
 recipient phone/email). Versionable, snapshot-friendly, easy to edit.
 
-**Secrets:** env-only, keyed per customer.
+**Secrets:** env-only, keyed per customer (for the sync job) or global (for
+the bridge + dashboard).
+
+### Sync job env (GitHub Actions + local `.env`)
 
 | Convention | Example | Source |
 |---|---|---|
@@ -196,8 +256,27 @@ recipient phone/email). Versionable, snapshot-friendly, easy to edit.
 | `WHATSAPP_API_TOKEN` | `tok_…` (per project token on the bridge) | GH secrets |
 | `EMAIL_API_KEY` | `re_…` (Resend) | GH secrets |
 | `DATABASE_URL` | `postgresql+psycopg://…` | GH secrets |
+| `AXIOM_API_TOKEN` / `AXIOM_DATASET` / `AXIOM_API_URL` | `xaat_…` / `automationclub` / (default `api.axiom.co`) | GH secrets |
 
-**Resolution order** (`_resolve_shopify_token`):
+### Dashboard env (Vercel)
+
+| Var | Purpose |
+|---|---|
+| `AUTH_SECRET` | Auth.js JWT signing key. |
+| `DATABASE_URL` | Same Neon URL (Drizzle strips `postgresql+psycopg://` prefix if present). |
+| `GITHUB_TOKEN` | Fine-grained PAT for `workflow_dispatch`; `actions:write` on AutomationClub only. |
+| `GITHUB_REPO` | `YehudaGoldshtein/AutomationClub`. |
+| `AXIOM_API_TOKEN` / `AXIOM_DATASET` / `AXIOM_API_URL` | Same dataset as the sync job. |
+
+### Bridge env (Fly)
+
+| Var | Purpose |
+|---|---|
+| `STORE_DIR` | Persistent volume path for `whatsmeow.db` (session SQLite). |
+| `AUTH_TOKENS` | `tok_abc:inventory-sync,tok_def:dating-crm` — multi-tenant caller registry. Unset = dev mode (unauthenticated). |
+| `AXIOM_API_TOKEN` / `AXIOM_DATASET` / `AXIOM_API_URL` | Same dataset. |
+
+**Shopify token resolution order** (`_resolve_shopify_token`):
 1. `SHOPIFY_TOKEN_<UPPER_ID>` (hyphens → underscores)
 2. `SHOPIFY_ADMIN_API_TOKEN` (legacy single-customer)
 
@@ -221,11 +300,54 @@ Dedup: **we only notify on state transitions**. `run_sync_pass` computes
 added/removed deltas against the stored `item_state` set, plus a first-run
 one-shot. Identical hourly runs with no deltas and no errors are silent.
 
+`WhatsAppBridgeAdapter` forwards `customer_id` to the bridge in the POST
+body; the bridge echoes it on its `send_ok` log. This closes the loop for
+cross-service Axiom filtering (see below).
+
+---
+
+## Observability
+
+All three services ship structured JSON logs to **one Axiom dataset**. The
+query key across services is `customer_id` — every tenant-scoped log event
+carries it, so a single APL expression catches Python sync runs, dashboard
+user actions, and bridge send confirmations for a given customer.
+
+### Emitters
+
+| Service | Code | Batching | Flush | Service tag |
+|---|---|---|---|---|
+| `inventory-sync` (Python) | `inventory_sync/axiom_handler.py` (via `log.py`) | In-memory buffer | `atexit` (short-lived CLI, one POST per run) | `inventory-sync` |
+| `whatsapp-notifier-bridge` (Go) | `logger.go` + `axiom_handler.go` wrapping `slog.JSONHandler` | In-memory, background goroutine | Every 3 s or 100 events; graceful drain on `Close()` during `SIGTERM` | `whatsapp-notifier-bridge` |
+| `automationclub-dashboard` (Next.js) | `lib/log.ts` | None | Fire-and-forget per event (`keepalive: true`) | `automationclub-dashboard` |
+
+All emitters fall back to stdout when `AXIOM_API_TOKEN` / `AXIOM_DATASET` are
+unset — so local dev and CI work without any Axiom setup, and Axiom is
+opt-in per deployment.
+
+### Cross-service query pattern
+
+```
+['automationclub']
+| where customer_id == "maxbaby"
+| sort by _time desc
+```
+
+Captures:
+- Python: `customer_sync_start`, `run_sync_pass` events, adapter errors
+- Dashboard: `login_ok`, `trigger_sync_ok`, `run_changes_fetched`
+- Bridge: `send_ok` for any WhatsApp notification the sync triggered on that
+  customer's behalf
+
+Untagged bridge events (`http_listening`, `qr_new_code_published`) are
+service-health signals and intentionally not customer-scoped.
+
 ---
 
 ## Related repos
 
 - **[AutomationClub](https://github.com/YehudaGoldshtein/AutomationClub)** — this repo (inventory sync service).
+- **[automationclub-dashboard](https://github.com/YehudaGoldshtein/automationclub-dashboard)** — Next.js admin + per-customer UI (Vercel). Read-only over Neon + `workflow_dispatch` trigger. Owns only the `users` table.
 - **[whatsapp-notifier-bridge](https://github.com/YehudaGoldshtein/whatsapp-notifier-bridge)** — minimal Go microservice wrapping whatsmeow. `POST /api/send` with Bearer auth, one deployment serves many client projects (inventory-sync, dating-crm). Deployed to Fly (`wa-notifier-yehuda.fly.dev`).
 
 ---

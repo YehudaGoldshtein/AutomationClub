@@ -70,7 +70,7 @@ def customer_sync_pass(
     vendor_name = binding.name
     ttl = ttl_minutes if ttl_minutes is not None else min(customer.sync_interval_minutes, 60)
 
-    log = logger.bind(customer=customer.id, vendor=vendor_name)
+    log = logger.bind(customer_id=customer.id, vendor=vendor_name)
     log.info(
         "customer_sync_start",
         sync_interval_minutes=customer.sync_interval_minutes,

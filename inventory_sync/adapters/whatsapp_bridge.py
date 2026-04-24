@@ -4,9 +4,14 @@ Implements NotificationChannel. Posts to the bridge's HTTP API (the bridge
 holds the WhatsApp session; this adapter is a thin client).
 
 Bridge protocol:
-    POST <base>/send  { recipient: "<phone>", message: "<text>" }
+    POST <base>/send  { recipient: "<phone>", message: "<text>",
+                        customer_id?: "<id>" }
     -> 200 { ok: true,  message_id: "<id>" }
     -> 4xx/5xx { ok: false, error: "<reason>" }
+
+`customer_id` is optional metadata — when present, the bridge echoes it on
+its `send_ok` log so cross-service queries in Axiom can filter a whole
+tenant's traffic in one expression.
 
 The Bearer token is attached to httpx.Client.headers by the caller (see
 _build_whatsapp_adapter in __main__.py).
@@ -28,14 +33,18 @@ class WhatsAppBridgeError(Exception):
 class WhatsAppBridgeAdapter:
     client: httpx.Client  # base_url = http://<bridge-host>:8080/api
     recipient: str         # phone number or JID to notify
+    customer_id: str | None = None  # optional tenant label; echoed to bridge logs
     logger: Logger = field(default_factory=lambda: get("adapters.whatsapp"))
 
     def send(self, subject: str, body: str) -> None:
         text = self._format(subject, body)
         log = self.logger.bind(recipient=self.recipient)
 
+        payload: dict = {"recipient": self.recipient, "message": text}
+        if self.customer_id:
+            payload["customer_id"] = self.customer_id
         try:
-            resp = self.client.post("/send", json={"recipient": self.recipient, "message": text})
+            resp = self.client.post("/send", json=payload)
         except Exception as e:
             log.exception("whatsapp_send_network_failed")
             raise WhatsAppBridgeError(f"bridge unreachable: {e}") from e

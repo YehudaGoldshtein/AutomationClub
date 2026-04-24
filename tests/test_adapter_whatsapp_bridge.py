@@ -13,10 +13,16 @@ from inventory_sync.log import get
 from tests.test_notifier import NotifierContract
 
 
-def _make_adapter(handler, recipient: str = "972504265054") -> WhatsAppBridgeAdapter:
+def _make_adapter(
+    handler,
+    recipient: str = "972504265054",
+    customer_id: str | None = None,
+) -> WhatsAppBridgeAdapter:
     transport = httpx.MockTransport(handler)
     client = httpx.Client(transport=transport, base_url="http://bridge.test/api")
-    return WhatsAppBridgeAdapter(client=client, recipient=recipient, logger=get("test"))
+    return WhatsAppBridgeAdapter(
+        client=client, recipient=recipient, customer_id=customer_id, logger=get("test"),
+    )
 
 
 def _success_handler(captured: list) -> callable:
@@ -62,6 +68,18 @@ class TestHappyPath:
         adapter = _make_adapter(_success_handler(seen))
         adapter.send("only subject", "")
         assert seen[0]["body"]["message"] == "only subject"
+
+    def test_customer_id_forwarded_when_set(self):
+        seen: list = []
+        adapter = _make_adapter(_success_handler(seen), customer_id="maxbaby")
+        adapter.send("s", "b")
+        assert seen[0]["body"]["customer_id"] == "maxbaby"
+
+    def test_customer_id_absent_from_body_when_unset(self):
+        seen: list = []
+        adapter = _make_adapter(_success_handler(seen))
+        adapter.send("s", "b")
+        assert "customer_id" not in seen[0]["body"]
 
 
 class TestFailures:

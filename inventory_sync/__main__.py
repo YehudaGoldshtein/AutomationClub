@@ -368,20 +368,27 @@ def _build_notifier_for(customer: Customer, cfg: Config, log: Logger) -> Notifie
 
     return Notifier(
         config=cfg_notifications,
-        ops_whatsapp=_build_whatsapp_adapter(cfg, ops.whatsapp, log) if ops and ops.whatsapp else None,
-        client_whatsapp=_build_whatsapp_adapter(cfg, client.whatsapp, log) if client and client.whatsapp else None,
+        ops_whatsapp=_build_whatsapp_adapter(cfg, ops.whatsapp, log, customer_id=customer.id) if ops and ops.whatsapp else None,
+        client_whatsapp=_build_whatsapp_adapter(cfg, client.whatsapp, log, customer_id=customer.id) if client and client.whatsapp else None,
         ops_email=_build_email_adapter(cfg, ops.email, log) if ops and ops.email else None,
         client_email=_build_email_adapter(cfg, client.email, log) if client and client.email else None,
         logger=log,
     )
 
 
-def _build_whatsapp_adapter(cfg: Config, recipient: str, log: Logger) -> WhatsAppBridgeAdapter:
+def _build_whatsapp_adapter(
+    cfg: Config,
+    recipient: str,
+    log: Logger,
+    customer_id: str | None = None,
+) -> WhatsAppBridgeAdapter:
     headers = {}
     if cfg.whatsapp.api_token:
         headers["Authorization"] = f"Bearer {cfg.whatsapp.api_token}"
     client = httpx.Client(base_url=cfg.whatsapp.api_base_url, headers=headers, timeout=15.0)
-    return WhatsAppBridgeAdapter(client=client, recipient=recipient, logger=log)
+    return WhatsAppBridgeAdapter(
+        client=client, recipient=recipient, customer_id=customer_id, logger=log,
+    )
 
 
 def _build_email_adapter(cfg: Config, recipient: str, log: Logger):

@@ -66,7 +66,7 @@ def run_sync_pass(
     store_display_name: str = "your store",
     store_product_store: _StoreProductStore | None = None,
 ) -> SyncRun:
-    log = logger.bind(customer=customer_id, vendor=vendor_name)
+    log = logger.bind(customer_id=customer_id, vendor=vendor_name)
     log.info("sync_pass_start")
 
     # 1. Fetch vendor catalog.

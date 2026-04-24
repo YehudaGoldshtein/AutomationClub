@@ -43,6 +43,7 @@ from inventory_sync.notifications import (
 )
 from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
+from inventory_sync.persistence.store_product_store import SqlStoreProductStore
 from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.persistence.vendor_snapshot_cache import SqlVendorSnapshotCache
 from inventory_sync.policies import DefaultStockPolicy
@@ -105,6 +106,7 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
     raw_item_state_store = _build_item_state_store(cfg, log)
     item_state_store = _DryRunItemStateStore(raw_item_state_store, log) if args.dry_run else raw_item_state_store
     cache = _build_vendor_snapshot_cache(cfg, log)
+    store_product_store = _build_store_product_store(cfg, log)
     effective_repo = None if args.dry_run else customer_repo
 
     # Shared Laura adapter (single vendor across all current customers).
@@ -127,6 +129,7 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
             sync_run_store=run_store,
             customer_repo=effective_repo,
             logger=log,
+            store_product_store=store_product_store,
         )
 
         print(f"customer={customer.id}  run_id={run.run_id}"
@@ -431,6 +434,12 @@ def _build_vendor_snapshot_cache(cfg: Config, log: Logger) -> SqlVendorSnapshotC
     cache = SqlVendorSnapshotCache(engine=_build_engine(cfg), logger=log)
     cache.create_schema()
     return cache
+
+
+def _build_store_product_store(cfg: Config, log: Logger) -> SqlStoreProductStore:
+    sps = SqlStoreProductStore(engine=_build_engine(cfg), logger=log)
+    sps.create_schema()
+    return sps
 
 
 def main(argv: list[str] | None = None) -> int:

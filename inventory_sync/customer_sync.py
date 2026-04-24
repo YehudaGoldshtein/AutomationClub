@@ -40,6 +40,10 @@ class _CustomerRepo(Protocol):
     def mark_synced(self, customer_id: str, when: datetime | None = None) -> None: ...
 
 
+class _StoreProductStore(Protocol):
+    def upsert_many(self, customer_id: str, products) -> None: ...
+
+
 def customer_sync_pass(
     *,
     customer: Customer,
@@ -53,6 +57,7 @@ def customer_sync_pass(
     customer_repo: _CustomerRepo | None,
     logger: Logger,
     ttl_minutes: int | None = None,
+    store_product_store: _StoreProductStore | None = None,
 ) -> SyncRun:
     """Run one sync pass for a customer; vendor fetches go through the shared cache.
 
@@ -91,6 +96,7 @@ def customer_sync_pass(
         vendor_name=vendor_name,
         customer_id=customer.id,
         store_display_name=customer.store.display_name or customer.display_name,
+        store_product_store=store_product_store,
     )
 
     if customer_repo is not None:

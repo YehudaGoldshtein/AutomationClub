@@ -53,6 +53,8 @@ class ShopifyAdapter:
 
         for sp in self._paginated_products():
             product_id = sp["id"]
+            handle = sp.get("handle") or None
+            title = sp.get("title") or None
             published = sp.get("status", "active") == "active"
             for variant in sp.get("variants", []):
                 sku_raw = variant.get("sku")
@@ -71,6 +73,9 @@ class ShopifyAdapter:
                         vendor_product_id=VendorProductId(sku_raw),
                         stock=StockLevel(max(0, qty)),
                         published=published,
+                        handle=handle,
+                        title=title,
+                        store_product_id=str(product_id),
                     )
                 )
 

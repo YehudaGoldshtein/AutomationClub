@@ -48,6 +48,10 @@ class _CatalogAwareSupplier(Protocol):
     ) -> dict[VendorProductId, VendorProductSnapshot]: ...
 
 
+class _StoreProductStore(Protocol):
+    def upsert_many(self, customer_id: str, products) -> None: ...
+
+
 def run_sync_pass(
     *,
     store: StorePlatform,
@@ -60,6 +64,7 @@ def run_sync_pass(
     vendor_name: str,
     customer_id: str,
     store_display_name: str = "your store",
+    store_product_store: _StoreProductStore | None = None,
 ) -> SyncRun:
     log = logger.bind(customer=customer_id, vendor=vendor_name)
     log.info("sync_pass_start")
@@ -75,6 +80,14 @@ def run_sync_pass(
         log.exception("store_list_failed")
         return _abort_empty_run(sync_run_store, log, customer_id=customer_id, message=f"store.list_products failed: {e}")
     log.info("store_products_loaded", count=len(all_products))
+
+    # Persist per-customer store-side metadata (handle/title/product_id) so the
+    # dashboard can build deep links without re-hitting the store API.
+    if store_product_store is not None:
+        try:
+            store_product_store.upsert_many(customer_id, all_products)
+        except Exception:
+            log.exception("store_product_upsert_failed")
 
     # 3. Pre-filter: only fetch detail for products the vendor still carries.
     in_catalog_products = [p for p in all_products if p.vendor_product_id in catalog]
@@ -92,7 +105,7 @@ def run_sync_pass(
         )
     except Exception as e:
         log.exception("supplier_fetch_failed")
-        return _abort_empty_run(sync_run_store, log, message=f"supplier.fetch_snapshots failed: {e}")
+        return _abort_empty_run(sync_run_store, log, customer_id=customer_id, message=f"supplier.fetch_snapshots failed: {e}")
 
     # 5. Run the stock-sync engine on the filtered slice.
     engine = SyncEngine(store=store, supplier=supplier, policy=policy, logger=logger)

@@ -143,3 +143,21 @@ vendor_snapshot_cache.append_constraint(
     _PK(vendor_snapshot_cache.c.vendor_name, vendor_snapshot_cache.c.vendor_product_id)
 )
 Index("ix_vendor_snapshot_cache_fetched_at", vendor_snapshot_cache.c.fetched_at)
+
+
+# --- Per-customer store product metadata ---
+# Keyed by (customer_id, sku). Populated each sync from the store adapter so
+# the dashboard can build storefront / admin deep links without hitting the
+# store API.
+
+store_products = Table(
+    "store_products", metadata,
+    Column("customer_id", String, nullable=False),
+    Column("sku", String, nullable=False),
+    Column("handle", String, nullable=True),
+    Column("title", String, nullable=True),
+    Column("store_product_id", String, nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))

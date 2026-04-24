@@ -28,11 +28,20 @@ class StockLevel:
 
 @dataclass(frozen=True)
 class Product:
-    """A syncable unit in the store — typically a Shopify variant, each with its own SKU, stock, and vendor mapping."""
+    """A syncable unit in the store — typically a Shopify variant, each with its own SKU, stock, and vendor mapping.
+
+    `handle`, `title`, and `store_product_id` are store-side identity we carry
+    through so the dashboard can build deep links back to the customer's
+    storefront / admin. Optional for backward-compat with fakes that don't
+    know the originating platform's identifiers.
+    """
     sku: SKU
     vendor_product_id: VendorProductId
     stock: StockLevel
     published: bool
+    handle: str | None = None
+    title: str | None = None
+    store_product_id: str | None = None
 
 
 class ChangeKind(str, Enum):

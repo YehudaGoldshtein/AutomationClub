@@ -102,6 +102,10 @@ def configure(log_dir: Path | str = "logs", level: str = "DEBUG") -> Logger:
     stdout_handler.setFormatter(_HumanFormatter())
     root.addHandler(stdout_handler)
 
+    # Optional: ship every record to Axiom as well. No-op when unconfigured.
+    from inventory_sync.axiom_handler import attach_if_configured  # late import to avoid httpx at module load
+    attach_if_configured(root, service="inventory-sync")
+
     return StdlibLogger(root)
 
 

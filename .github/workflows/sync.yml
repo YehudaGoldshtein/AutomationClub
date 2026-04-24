@@ -58,6 +58,10 @@ jobs:
           NOTIFY_SYNC_ERROR_VIA: whatsapp
           # --- Persistent state (Neon / Vercel Postgres / any Postgres URL) ---
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # --- Axiom centralized logging (optional) ---
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then
             python -m inventory_sync sync --dry-run

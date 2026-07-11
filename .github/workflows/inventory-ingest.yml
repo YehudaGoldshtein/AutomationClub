@@ -1,0 +1,71 @@
+name: inventory-ingest
+
+# STUB — the "digest an uploaded blob into the DB" step.
+# Real implementation TBD. For now this only validates inputs and
+# fakes a happy-path ingest so downstream callers (dashboard/upload
+# flow) have a stable workflow_dispatch target to hit.
+
+on:
+  workflow_dispatch:
+    inputs:
+      blob_url:
+        description: 'URL of the uploaded blob to ingest'
+        type: string
+        required: true
+      customer_id:
+        description: 'Tenant the blob belongs to'
+        type: string
+        required: true
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Echo inputs
+        run: |
+          echo "customer_id: ${{ inputs.customer_id }}"
+          echo "blob_url:    ${{ inputs.blob_url }}"
+
+      - name: Ingest blob into DB (stub)
+        run: |
+          echo "STUB: would download ${{ inputs.blob_url }}"
+          echo "STUB: would parse it and upsert rows for customer '${{ inputs.customer_id }}'"
+          echo "STUB: no DB writes performed — happy path faked."
+
+      - name: Ship stub event to Axiom
+        env:
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: |
+          # Mirror the other services: no token/dataset -> stdout only, no-op.
+          if [[ -z "$AXIOM_API_TOKEN" || -z "$AXIOM_DATASET" ]]; then
+            echo "Axiom not configured — skipping event ship (stdout only)."
+            exit 0
+          fi
+          api_url="${AXIOM_API_URL:-https://api.axiom.co}"
+          payload=$(jq -nc \
+            --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg cid "${{ inputs.customer_id }}" \
+            --arg blob "${{ inputs.blob_url }}" \
+            --arg run "${{ github.run_id }}" \
+            '[{
+              _time: $t,
+              level: "INFO",
+              logger: "inventory_sync.ingest",
+              msg: "inventory_ingest_stub",
+              service: "inventory-sync",
+              customer_id: $cid,
+              blob_url: $blob,
+              stub: true,
+              github_run_id: $run
+            }]')
+          # Logging must never fail the job — swallow curl errors.
+          curl -sS --fail-with-body -m 10 \
+            -X POST "${api_url%/}/v1/datasets/${AXIOM_DATASET}/ingest" \
+            -H "Authorization: Bearer ${AXIOM_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            && echo "Shipped inventory_ingest_stub to Axiom." \
+            || echo "Axiom ship failed — ignoring (logging must not fail the job)."

@@ -20,7 +20,15 @@ from typing import Iterator
 
 import httpx
 
-from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
+from inventory_sync.domain import (
+    SKU,
+    CollectionRef,
+    CreatedProduct,
+    Product,
+    ProductDraft,
+    StockLevel,
+    VendorProductId,
+)
 from inventory_sync.log import Logger, get
 
 
@@ -112,16 +120,82 @@ class ShopifyAdapter:
     def republish(self, sku: SKU) -> None:
         self._set_product_status(sku, "active")
 
-    # --- net-new product creation (Laura upload) — SCAFFOLD ---
+    # --- net-new product creation (Laura upload) ---
 
-    def create_product(self, draft):
-        raise NotImplementedError
+    def create_product(self, draft: ProductDraft) -> CreatedProduct:
+        has_size_option = any(v.option_value is not None for v in draft.variants)
+        variants_payload: list[dict] = []
+        for v in draft.variants:
+            vp: dict = {"sku": str(v.sku)}
+            if v.option_value is not None:
+                vp["option1"] = v.option_value
+            if v.barcode is not None:
+                vp["barcode"] = v.barcode
+            if v.price is not None:
+                vp["price"] = str(v.price)
+            variants_payload.append(vp)
 
-    def ensure_collection(self, title: str):
-        raise NotImplementedError
+        product: dict = {
+            "title": draft.title,
+            "body_html": draft.body_html,
+            "vendor": draft.vendor,
+            "product_type": draft.product_type,
+            "tags": draft.tags,
+            "status": draft.status,
+            "variants": variants_payload,
+        }
+        if has_size_option:
+            product["options"] = [{"name": draft.option_name}]
+        if draft.image_urls:
+            product["images"] = [{"src": url} for url in draft.image_urls]
+
+        resp = self.client.post("/products.json", json={"product": product})
+        if resp.status_code not in (200, 201):
+            self.logger.error("product_create_failed", status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"products.json {resp.status_code}: {resp.text[:200]}")
+
+        created = resp.json()["product"]
+        product_id = created["id"]
+        variant_ids: dict[SKU, str] = {}
+        for v in created.get("variants", []):
+            sku_raw = v.get("sku")
+            if not sku_raw:
+                continue
+            sku = SKU(sku_raw)
+            variant_ids[sku] = str(v["id"])
+            # Cache the ref so a follow-up update_stock/status needs no re-list.
+            self._variant_by_sku[sku] = _VariantRef(
+                inventory_item_id=v["inventory_item_id"],
+                product_id=product_id,
+                variant_id=v["id"],
+            )
+        self.logger.info("product_created", product_id=product_id, variants=len(variant_ids), status=draft.status)
+        return CreatedProduct(store_product_id=str(product_id), variant_ids_by_sku=variant_ids)
+
+    def ensure_collection(self, title: str) -> CollectionRef:
+        resp = self.client.get("/custom_collections.json")
+        if resp.status_code != 200:
+            raise ShopifyError(f"custom_collections.json {resp.status_code}: {resp.text[:200]}")
+        for c in resp.json().get("custom_collections", []):
+            if c.get("title") == title:
+                return CollectionRef(id=str(c["id"]), created=False)
+
+        resp = self.client.post("/custom_collections.json", json={"custom_collection": {"title": title}})
+        if resp.status_code not in (200, 201):
+            self.logger.error("collection_create_failed", status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"custom_collections.json POST {resp.status_code}: {resp.text[:200]}")
+        c = resp.json()["custom_collection"]
+        self.logger.info("collection_created", collection_id=c["id"], title=title)
+        return CollectionRef(id=str(c["id"]), created=True)
 
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
-        raise NotImplementedError
+        resp = self.client.post(
+            "/collects.json",
+            json={"collect": {"product_id": int(store_product_id), "collection_id": int(collection_id)}},
+        )
+        if resp.status_code not in (200, 201):
+            self.logger.error("collect_failed", status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"collects.json {resp.status_code}: {resp.text[:200]}")
 
     # --- private ---
 

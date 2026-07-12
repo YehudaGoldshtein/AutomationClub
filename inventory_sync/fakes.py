@@ -8,7 +8,10 @@ from typing import Iterable
 from inventory_sync.customers import Customer
 from inventory_sync.domain import (
     SKU,
+    CollectionRef,
+    CreatedProduct,
     Product,
+    ProductDraft,
     StockLevel,
     SyncRun,
     VendorProductId,
@@ -19,6 +22,13 @@ from inventory_sync.domain import (
 class InMemoryStore:
     def __init__(self, products: list[Product] | None = None):
         self._products: dict[SKU, Product] = {p.sku: p for p in (products or [])}
+        self._collections: dict[str, str] = {}   # title -> collection_id
+        self.collects: list[tuple[str, str]] = []  # (store_product_id, collection_id)
+        self._seq = 0
+
+    def _next_id(self) -> str:
+        self._seq += 1
+        return str(9000 + self._seq)
 
     def list_products(self) -> list[Product]:
         return list(self._products.values())
@@ -35,16 +45,35 @@ class InMemoryStore:
     def get(self, sku: SKU) -> Product:
         return self._products[sku]
 
-    # --- net-new product creation (Laura upload) — SCAFFOLD ---
+    # --- net-new product creation (Laura upload) ---
 
-    def create_product(self, draft):
-        raise NotImplementedError
+    def create_product(self, draft: ProductDraft) -> CreatedProduct:
+        product_id = self._next_id()
+        published = draft.status == "active"
+        variant_ids: dict[SKU, str] = {}
+        for v in draft.variants:
+            variant_ids[v.sku] = self._next_id()
+            self._products[v.sku] = Product(
+                sku=v.sku,
+                vendor_product_id=VendorProductId(str(v.sku)),
+                stock=StockLevel(0),
+                published=published,
+                handle=None,
+                title=draft.title,
+                store_product_id=product_id,
+            )
+        return CreatedProduct(store_product_id=product_id, variant_ids_by_sku=variant_ids)
 
-    def ensure_collection(self, title: str):
-        raise NotImplementedError
+    def ensure_collection(self, title: str) -> CollectionRef:
+        existing = self._collections.get(title)
+        if existing is not None:
+            return CollectionRef(id=existing, created=False)
+        new_id = self._next_id()
+        self._collections[title] = new_id
+        return CollectionRef(id=new_id, created=True)
 
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
-        raise NotImplementedError
+        self.collects.append((store_product_id, collection_id))
 
 
 class InMemorySupplier:

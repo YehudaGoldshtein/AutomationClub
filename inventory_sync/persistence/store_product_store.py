@@ -20,6 +20,36 @@ from inventory_sync.log import Logger, get
 from inventory_sync.persistence.schema import metadata, store_products
 
 
+@dataclass(frozen=True)
+class NewStoreProduct:
+    """A freshly-created draft product to record after ingest creates it in the store.
+
+    One instance per variant SKU; variants of the same product share store_product_id.
+    """
+    sku: str
+    store_product_id: str
+    handle: str | None = None
+    title: str | None = None
+    is_new_collection: bool = False
+    needs_review: bool = False
+
+
+@dataclass(frozen=True)
+class StoreProductRecord:
+    """A row read back from store_products, including lifecycle state."""
+    customer_id: str
+    sku: str
+    handle: str | None
+    title: str | None
+    store_product_id: str | None
+    status: str
+    approved: bool
+    approved_at: datetime | None
+    is_new_collection: bool
+    needs_review: bool
+    updated_at: datetime
+
+
 @dataclass
 class SqlStoreProductStore:
     engine: Engine
@@ -70,3 +100,28 @@ class SqlStoreProductStore:
         with Session(self.engine) as session:
             with session.begin():
                 session.execute(stmt)
+
+    # --- lifecycle / pending-review flow (SCAFFOLD — see tests) ---
+
+    def get(self, customer_id: str, sku: str) -> StoreProductRecord | None:
+        raise NotImplementedError
+
+    def write_pending(self, customer_id: str, items: Iterable[NewStoreProduct]) -> None:
+        """Record newly-created draft products: status=draft, approved=false."""
+        raise NotImplementedError
+
+    def list_pending(self, customer_id: str) -> list[StoreProductRecord]:
+        """Rows awaiting confirmation: status=draft AND approved=false."""
+        raise NotImplementedError
+
+    def list_approved_drafts(self, customer_id: str) -> list[StoreProductRecord]:
+        """Confirmed-but-not-yet-live rows: status=draft AND approved=true."""
+        raise NotImplementedError
+
+    def mark_approved(self, customer_id: str, store_product_id: str) -> None:
+        """Dashboard confirm: set approved=true + approved_at for all rows of the product."""
+        raise NotImplementedError
+
+    def mark_active(self, customer_id: str, store_product_id: str) -> None:
+        """Sync activation: flip status=active for all rows of the product."""
+        raise NotImplementedError

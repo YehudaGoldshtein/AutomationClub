@@ -46,6 +46,25 @@ class TestSubcategoryCollection:
     def test_unknown_family_returns_none(self):
         assert subcategory_collection("משפחה שלא קיימת") is None
 
+    def test_strips_whitespace_before_lookup(self):
+        # The file has hidden leading/trailing spaces (' חולצה', 'וילונות ', ...).
+        assert subcategory_collection(" חולצה ") == "אופנה"
+        assert subcategory_collection("וילונות ") == "חדר תינוק"
+        assert subcategory_collection("מוצרי האכלה ") == "מוצרי האכלה"
+
+    def test_combined_sheet_family_is_one_exact_key(self):
+        assert subcategory_collection("סדינים מטר/מעבר") == "סדינים למיטת תינוק"
+        assert subcategory_collection("סל כביסה-סל אחסון") == "אחסון ואביזרים"
+
+    def test_plural_blanket_family_keys(self):
+        assert subcategory_collection("שמיכות טטרא") == "שמיכות לתינוק"
+        assert subcategory_collection("שמיכת פוך") == "שמיכות לתינוק"
+
+    def test_inferred_families_await_owner_approval(self):
+        # ⚠️ inferred (not yet confirmed in store) → None → needs_review (safe)
+        assert subcategory_collection("שמיכות סרוגות") is None
+        assert subcategory_collection("סינר בנדנה") is None
+
 
 class TestConstants:
     def test_category_collection_id_is_the_textile_collection(self):

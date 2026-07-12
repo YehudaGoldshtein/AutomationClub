@@ -12,7 +12,12 @@ from inventory_sync.domain import SKU, ProductDraft, VariantSpec
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.log import get
 from inventory_sync.persistence.store_product_store import NewStoreProduct, SqlStoreProductStore
-from inventory_sync.reconcile import ReconcileSummary, reconcile_approved_drafts
+from inventory_sync.reconcile import (
+    RejectSummary,
+    ReconcileSummary,
+    reconcile_approved_drafts,
+    reconcile_rejected_drafts,
+)
 
 C = "maxbaby"
 LOG = get("test")
@@ -81,3 +86,33 @@ class TestReconcile:
         assert summary.activated == 0
         assert summary.errors == 1
         assert ps.get(C, "GHOST-1").status == "draft"  # not marked active on failure
+
+
+class TestRejectReconcile:
+    def test_rejected_product_is_deleted(self):
+        store, ps = _stores()
+        pid = _create_draft(store, ps, ["D-1"], approve=False)
+        ps.mark_rejected(C, pid)
+        summary = reconcile_rejected_drafts(store, ps, C, LOG)
+        assert summary.deleted == 1
+        assert SKU("D-1") not in {p.sku for p in store.list_products()}  # gone from store
+        assert ps.get(C, "D-1") is None                                 # row gone
+
+    def test_non_rejected_drafts_untouched(self):
+        store, ps = _stores()
+        _create_draft(store, ps, ["D-1"], approve=False)  # draft, not rejected
+        summary = reconcile_rejected_drafts(store, ps, C, LOG)
+        assert summary.deleted == 0
+        assert SKU("D-1") in {p.sku for p in store.list_products()}
+
+    def test_multi_variant_rejected_deleted_once(self):
+        store, ps = _stores()
+        pid = _create_draft(store, ps, ["D-1", "D-2"], approve=False)
+        ps.mark_rejected(C, pid)
+        summary = reconcile_rejected_drafts(store, ps, C, LOG)
+        assert summary.deleted == 1
+        assert {ps.get(C, s) for s in ("D-1", "D-2")} == {None}
+
+    def test_no_rejected_is_noop(self):
+        store, ps = _stores()
+        assert reconcile_rejected_drafts(store, ps, C, LOG) == RejectSummary()

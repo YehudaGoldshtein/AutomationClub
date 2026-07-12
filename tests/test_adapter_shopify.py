@@ -89,6 +89,10 @@ class _FakeShopifyApi:
             collect = _json.loads(request.content.decode())["collect"]
             self.collects.append(collect)
             return httpx.Response(201, json={"collect": collect})
+        if method == "DELETE" and "/products/" in path and path.endswith(".json"):
+            pid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
+            self.products.pop(pid, None)
+            return httpx.Response(200, json={})
         if method == "PUT" and "/products/" in path and path.endswith(".json"):
             product_id_str = path.rsplit("/", 1)[-1].replace(".json", "")
             try:

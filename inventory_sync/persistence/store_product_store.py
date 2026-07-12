@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable
 
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -190,6 +190,34 @@ class SqlStoreProductStore:
         """Sync activation: flip status=active for all rows of the product."""
         self._update_product(customer_id, store_product_id, {"status": "active"})
         self.logger.info("store_product_activated", customer_id=customer_id, store_product_id=store_product_id)
+
+    def mark_rejected(self, customer_id: str, store_product_id: str) -> None:
+        """Dashboard 'ignore': mark for deletion (reconcile deletes it from the store)."""
+        self._update_product(customer_id, store_product_id, {"status": "rejected"})
+        self.logger.info("store_product_rejected", customer_id=customer_id, store_product_id=store_product_id)
+
+    def list_rejected(self, customer_id: str) -> list[StoreProductRecord]:
+        """Rows the user ignored: status=rejected (awaiting deletion)."""
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(store_products).where(
+                    store_products.c.customer_id == customer_id,
+                    store_products.c.status == "rejected",
+                )
+            ).mappings().all()
+        return [_to_record(r) for r in rows]
+
+    def delete_products(self, customer_id: str, store_product_id: str) -> None:
+        """Remove all rows for a product (after it's deleted from the store)."""
+        with Session(self.engine) as session:
+            with session.begin():
+                session.execute(
+                    delete(store_products).where(
+                        store_products.c.customer_id == customer_id,
+                        store_products.c.store_product_id == store_product_id,
+                    )
+                )
+        self.logger.info("store_products_deleted", customer_id=customer_id, store_product_id=store_product_id)
 
     def _update_product(self, customer_id: str, store_product_id: str, values: dict) -> None:
         with Session(self.engine) as session:

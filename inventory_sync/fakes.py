@@ -75,6 +75,12 @@ class InMemoryStore:
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
         self.collects.append((store_product_id, collection_id))
 
+    def delete_product(self, store_product_id: str) -> None:
+        self._products = {
+            sku: p for sku, p in self._products.items()
+            if p.store_product_id != store_product_id
+        }
+
 
 class InMemorySupplier:
     def __init__(

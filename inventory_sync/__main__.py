@@ -35,7 +35,7 @@ from inventory_sync.customers import (
 from inventory_sync.engine import SyncEngine
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.log import Logger, configure
-from inventory_sync.reconcile import reconcile_approved_drafts
+from inventory_sync.reconcile import reconcile_approved_drafts, reconcile_rejected_drafts
 from inventory_sync.notifications import (
     EVENT_ARCHIVE_AUDIT,
     EVENT_SYNC_ERROR,
@@ -145,10 +145,11 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
         if run.errors:
             worst_exit = 1
 
-        # Activate any drafts the dashboard approved since the last run.
+        # Activate approved drafts + delete ignored ones since the last run.
         if not args.dry_run:
             rec = reconcile_approved_drafts(store, store_product_store, customer.id, log)
-            if rec.errors:
+            rej = reconcile_rejected_drafts(store, store_product_store, customer.id, log)
+            if rec.errors or rej.errors:
                 worst_exit = 1
     return worst_exit
 
@@ -313,9 +314,11 @@ def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     log.info("reconcile_command_start")
     store = _build_shopify_adapter(cfg, log)
     product_store = _build_store_product_store(cfg, log)
-    summary = reconcile_approved_drafts(store, product_store, args.customer_id, log)
-    print(f"reconcile: activated={summary.activated} errors={summary.errors}")
-    return 1 if summary.errors else 0
+    act = reconcile_approved_drafts(store, product_store, args.customer_id, log)
+    rej = reconcile_rejected_drafts(store, product_store, args.customer_id, log)
+    print(f"reconcile: activated={act.activated} deleted={rej.deleted} "
+          f"errors={act.errors + rej.errors}")
+    return 1 if (act.errors or rej.errors) else 0
 
 
 def _build_shopify_adapter(cfg: Config, log: Logger) -> ShopifyAdapter:

@@ -202,6 +202,13 @@ class ShopifyAdapter:
         self.logger.info("collection_created", collection_id=c["id"], title=title)
         return CollectionRef(id=cid, created=True)
 
+    def delete_product(self, store_product_id: str) -> None:
+        resp = self.client.delete(f"/products/{store_product_id}.json")
+        if resp.status_code != 200:
+            self.logger.error("product_delete_failed", status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"products/{store_product_id}.json DELETE {resp.status_code}: {resp.text[:200]}")
+        self.logger.info("product_deleted", product_id=store_product_id)
+
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
         resp = self.client.post(
             "/collects.json",

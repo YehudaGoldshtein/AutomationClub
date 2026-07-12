@@ -137,6 +137,12 @@ class StoreContract:
         ref = store.ensure_collection("אופנה")
         store.add_to_collection(created.store_product_id, ref.id)  # must not raise
 
+    def test_delete_product_removes_it(self, store: StorePlatform):
+        created = store.create_product(_draft("חדש", [VariantSpec(SKU("DEL-1"))]))
+        assert SKU("DEL-1") in {p.sku for p in store.list_products()}
+        store.delete_product(created.store_product_id)
+        assert SKU("DEL-1") not in {p.sku for p in store.list_products()}
+
 
 class TestInMemoryStore(StoreContract):
     @pytest.fixture

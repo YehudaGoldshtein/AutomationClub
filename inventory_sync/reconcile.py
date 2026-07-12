@@ -18,6 +18,13 @@ class ReconcileSummary:
     activated_product_ids: list[str] = field(default_factory=list)
 
 
+@dataclass
+class RejectSummary:
+    deleted: int = 0
+    errors: int = 0
+    deleted_product_ids: list[str] = field(default_factory=list)
+
+
 def reconcile_approved_drafts(store, product_store, customer_id: str, logger) -> ReconcileSummary:
     """Republish every approved draft (status=active) and mark it active in the DB."""
     approved = product_store.list_approved_drafts(customer_id)
@@ -52,4 +59,36 @@ def reconcile_approved_drafts(store, product_store, customer_id: str, logger) ->
 
     logger.info("reconcile_summary", customer_id=customer_id,
                 activated=summary.activated, errors=summary.errors)
+    return summary
+
+
+def reconcile_rejected_drafts(store, product_store, customer_id: str, logger) -> RejectSummary:
+    """Delete every rejected ('ignored') product from the store + drop its rows."""
+    rejected = product_store.list_rejected(customer_id)
+    if not rejected:
+        logger.info("reconcile_reject_none", customer_id=customer_id)
+        return RejectSummary()
+
+    product_ids: list[str] = []
+    seen: set[str] = set()
+    for row in rejected:
+        if row.store_product_id not in seen:
+            seen.add(row.store_product_id)
+            product_ids.append(row.store_product_id)
+
+    summary = RejectSummary()
+    for product_id in product_ids:
+        try:
+            store.delete_product(product_id)
+            product_store.delete_products(customer_id, product_id)
+        except Exception:
+            logger.exception("reconcile_reject_failed", customer_id=customer_id, store_product_id=product_id)
+            summary.errors += 1
+            continue
+        summary.deleted += 1
+        summary.deleted_product_ids.append(product_id)
+        logger.info("reconcile_rejected_deleted", customer_id=customer_id, store_product_id=product_id)
+
+    logger.info("reconcile_reject_summary", customer_id=customer_id,
+                deleted=summary.deleted, errors=summary.errors)
     return summary

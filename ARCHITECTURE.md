@@ -143,6 +143,47 @@ vendor cache still updates — it's raw vendor data, useful regardless.
 
 ---
 
+## Product upload (Laura) — draft → approve → activate
+
+A second entrypoint alongside the hourly stock sync: turning Laura's product
+spreadsheet into **net-new** store products. Uploaded products are created as
+**drafts** and only go live after a human confirms them in the dashboard.
+
+```
+dashboard upload → Vercel Blob
+        │  workflow_dispatch(blob_url, customer_id)
+        ▼
+ inventory-ingest.yml → python -m inventory_sync ingest
+        │  parse xlsx → group (color=product, size=variant)
+        │  skip existing SKUs (skip-dominant: ~all rows)
+        │  create DRAFT + category/sub-category collections
+        │  write_pending → store_products (status=draft, approved=false, flags)
+        ▼
+ dashboard "Pending" view → user approves → sets approved=true (Neon write only)
+        ▼
+ hourly sync  (or reconcile.yml "activate now")
+        │  reconcile: list_approved_drafts → republish → mark_active
+        ▼
+      LIVE
+```
+
+- **Grouping** (`laura_upload.py`): size token extracted anywhere in the title;
+  clothing size always a variant, metric size a variant only with ≥2 (PRD §2).
+- **Mapping** (`laura_mapping.py`): body_html template, price = `מחיר מומלץ`,
+  family → sub-category collection (Appendix A), category collection constant.
+- **Ingest** (`laura_ingest.py` + `ingest` CLI): new-SKU = new product; a title
+  collision with an existing product is flagged `needs_review`, not duplicated.
+- **Reconcile** (`reconcile.py` + `reconcile` CLI): reuses `republish` to flip
+  approved drafts live; folded into `cmd_sync` (non-dry-run) and dispatchable via
+  `reconcile.yml`. The dashboard never holds a Shopify token — it only writes the
+  `approved` flag; the tokened job does the activation.
+
+All steps emit `customer_id`-bound Axiom events (`ingest_*`, `reconcile_*`,
+`store_products_pending_written`, `store_product_approved/activated`). Full spec:
+`PRD-laura-product-upload.md`; build/rollout: `PLAN-laura-product-upload.md`.
+
+---
+
 ## Interfaces
 
 Each row below is a Protocol in the domain layer. Concrete implementations
@@ -151,14 +192,14 @@ are selected via config, never by `if` branches in callers.
 
 | Seam | Interface | v1 impl | Future impls |
 |---|---|---|---|
-| Store platform | `StorePlatform` | `ShopifyAdapter` | WooCommerce, Magento, BigCommerce |
+| Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`) | `ShopifyAdapter` | WooCommerce, Magento, BigCommerce |
 | Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` | Other scrapers, vendor REST APIs, CSV feeds |
 | Notification channel | `NotificationChannel` | `ResendEmailAdapter`, `WhatsAppBridgeAdapter` | SMS, Slack, Telegram, webhooks |
 | Stock policy | `StockPolicy` | `DefaultStockPolicy` (binary + exact-count modes) | pause-ads, auto-reorder, per-product overrides |
 | Sync run store | `SyncRunStore` | `SqlSyncRunStore` (SQLAlchemy Core) | S3 snapshot, external log service |
 | Item state store | `ItemStateStore` | `SqlItemStateStore` | same |
 | Customer repository | `CustomerRepository` | `SqlCustomerRepository` | admin-UI-backed |
-| Store product store | `StoreProductStore` | `SqlStoreProductStore` | — (cache of Shopify handles for deep links) |
+| Store product store | `StoreProductStore` | `SqlStoreProductStore` | — (deep-link cache **+ product lifecycle**: draft → approve → active) |
 | Vendor snapshot cache | `VendorSnapshotCache` | `SqlVendorSnapshotCache` | Redis, in-memory (fakes for tests) |
 | Logger | `Logger` | `StdlibLogger` (rotating files + stdout) + `AxiomBatchHandler` when `AXIOM_*` env set | Datadog, OTel |
 
@@ -180,7 +221,7 @@ SQL adapter to prove drop-in equivalence.
 | `sync_runs` | `(run_id)` + `customer_id` index | Run history. Joins to `sync_run_changes` and `sync_run_errors` on `run_id`. |
 | `sync_run_changes` | autoincrement | Every planned + applied `StockChange` for a run. |
 | `sync_run_errors` | autoincrement | Every error from a run, with optional `sku`. |
-| `store_products` | `(customer_id, sku)` | Shopify handle + title + product-id per SKU. Written every sync pass; read by the dashboard to build storefront and admin deep links. |
+| `store_products` | `(customer_id, sku)` | Shopify handle + title + product-id per SKU (deep links), **plus product lifecycle**: `status` (draft\|active), `approved` + `approved_at`, `is_new_collection`, `needs_review`. Written every sync pass; also the draft→approve→activate handshake between ingest (Python), the dashboard (sets `approved`), and reconcile (sets `active`). |
 
 ### Global tables (shared across tenants)
 
@@ -199,7 +240,7 @@ SQL adapter to prove drop-in equivalence.
 - `item_state` rows exist **only** for currently-active SKUs. Absence = inactive. No `is_active` boolean.
 - `vendor_snapshot_cache.fetched_at` is the freshness authority — TTL is applied in code (`vendor_scan_pass`), not in the schema, so different callers can choose different tolerances.
 - `customers.last_synced_at` is written only by `mark_synced`, never clobbered by config `upsert`.
-- `store_products` is a write-through cache of Shopify metadata. Rows survive between runs so deep links still work even if a SKU isn't touched on a given sync.
+- `store_products` is a write-through cache of Shopify metadata **and** the store of product lifecycle state. The per-sync `upsert_many` touches only metadata columns (`handle/title/store_product_id/updated_at`), so it never clobbers `status`/`approved` — that column-scoping is what lets the lifecycle live here instead of in a separate table. Column defaults (`status='active'`, `approved=true`) make sync-discovered products live; only `write_pending` creates `draft`/unapproved rows.
 
 ---
 

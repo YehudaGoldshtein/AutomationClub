@@ -201,18 +201,22 @@ product-level: group approved rows by `store_product_id`.
 
 ## 9. Phasing
 
-| Phase | Deliverable | Behavior change |
-|---|---|---|
-| 0 | `store_products` columns + `scripts/migrate_*` + backfill; keep upsert column-scoped | none (data only) |
-| 1 | domain types + 3 `StorePlatform` methods + `ShopifyAdapter` impl + fake + tests | none (not wired) |
-| 2 | xlsx parser + grouping algorithm + `ingest` CLI with `--dry-run` | none (dry-run only) |
-| 3 | wire real `inventory-ingest.yml`; create drafts; write pending rows | **creates draft products** |
-| 4 | activation reconcile in sync pass (`approved → active`) | approved drafts go live |
-| 5 | dashboard Pending view + approve write (+ optional activate-now) | human confirmation loop |
+| Phase | Deliverable | Behavior change | Status |
+|---|---|---|---|
+| 0 | `store_products` columns + `scripts/migrate_*` + backfill; keep upsert column-scoped | none (data only) | ✅ done |
+| 1 | domain types + 3 `StorePlatform` methods + `ShopifyAdapter` impl + fake + tests | none (not wired) | ✅ done |
+| 2 | xlsx parser + grouping algorithm + mapping + `ingest` CLI with `--dry-run` | none (dry-run only) | ✅ done |
+| 3 | wire real `inventory-ingest.yml`; create drafts; write pending rows | **creates draft products** | ✅ done |
+| 4 | activation reconcile in sync pass + `reconcile` CLI + `reconcile.yml` (`approved → active`) | approved drafts go live | ✅ done |
+| 5 | dashboard Pending view + approve write (+ optional activate-now) | human confirmation loop | ⬜ dashboard repo |
 
-Phases 0-2 ship zero customer-visible change. First live effect is Phase 3, and it only ever
-creates **drafts** — invisible on the storefront until Phase 4/5 confirmation. Low blast radius
-by construction.
+Phases 0-4 (all Python) shipped behind tests (356 green). First live effect is Phase 3, and it
+only ever creates **drafts** — invisible on the storefront until Phase 4/5 confirmation. Low blast
+radius by construction. Phase 5 lives in `automationclub-dashboard` (prompt provided).
+
+**Go-live prerequisites:** (a) run `scripts/migrate_store_products_lifecycle` against Neon once;
+(b) load the authoritative Appendix-A family strings (see §10.9); (c) validate with a
+`dry_run=true` ingest dispatch before the first live create.
 
 ---
 
@@ -231,7 +235,10 @@ by construction.
 5. **Idempotency** — re-running the same blob must not duplicate products; the step-4a existence
    check is the guard. Test double-ingest.
 6. **Price semantics** — is `מחיר מומלץ` final (VAT-inclusive) and the intended sell price? Confirm.
-7. **`store_products` conceptual drift** — it becomes cache + app-state. Update the
-   ARCHITECTURE.md invariant ("write-through cache of Shopify metadata") to note the lifecycle
-   columns.
+7. ~~**`store_products` conceptual drift**~~ — ✅ ARCHITECTURE.md updated: the invariant now
+   notes it's cache + lifecycle state, and that the metadata-scoped upsert protects it.
 8. **The 0.4% grouping misses** (3/812) — route to `needs_review`, never auto-create silently.
+9. **Appendix-A family strings** — resolved (2026-07-12): PRD creator supplied 82 exact
+   `תאור משפחה` values. Code uses `.strip()` (hidden leading/trailing spaces in the data) +
+   the authoritative map. **12 families are inferred/unconfirmed** (not yet seen in the store) —
+   kept OUT of the active map so they fall to `needs_review` until the site owner confirms them.

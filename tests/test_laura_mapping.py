@@ -60,10 +60,12 @@ class TestSubcategoryCollection:
         assert subcategory_collection("שמיכות טטרא") == "שמיכות לתינוק"
         assert subcategory_collection("שמיכת פוך") == "שמיכות לתינוק"
 
-    def test_inferred_families_await_owner_approval(self):
-        # ⚠️ inferred (not yet confirmed in store) → None → needs_review (safe)
-        assert subcategory_collection("שמיכות סרוגות") is None
-        assert subcategory_collection("סינר בנדנה") is None
+    def test_formerly_inferred_families_now_mapped(self):
+        # All 82 families approved by the owner (FINAL map) — previously-⚠️ ones map now.
+        assert subcategory_collection("שמיכות סרוגות") == "שמיכות לתינוק"
+        assert subcategory_collection("סינר בנדנה") == "סינרים"
+        assert subcategory_collection("סל אחסון") == "אחסון ואביזרים"
+        assert subcategory_collection("אוהל טיפי") == "חדר תינוק"
 
 
 class TestConstants:

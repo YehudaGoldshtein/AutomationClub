@@ -215,8 +215,8 @@ only ever creates **drafts** — invisible on the storefront until Phase 4/5 con
 radius by construction. Phase 5 lives in `automationclub-dashboard` (prompt provided).
 
 **Go-live prerequisites:** (a) run `scripts/migrate_store_products_lifecycle` against Neon once;
-(b) load the authoritative Appendix-A family strings (see §10.9); (c) validate with a
-`dry_run=true` ingest dispatch before the first live create.
+(b) ✅ Appendix-A family map finalized/approved (all 82); (c) validate with a `dry_run=true`
+ingest dispatch before the first live create; (d) decide on the ~1073 full-catalog scope.
 
 ---
 
@@ -238,7 +238,6 @@ radius by construction. Phase 5 lives in `automationclub-dashboard` (prompt prov
 7. ~~**`store_products` conceptual drift**~~ — ✅ ARCHITECTURE.md updated: the invariant now
    notes it's cache + lifecycle state, and that the metadata-scoped upsert protects it.
 8. **The 0.4% grouping misses** (3/812) — route to `needs_review`, never auto-create silently.
-9. **Appendix-A family strings** — resolved (2026-07-12): PRD creator supplied 82 exact
-   `תאור משפחה` values. Code uses `.strip()` (hidden leading/trailing spaces in the data) +
-   the authoritative map. **12 families are inferred/unconfirmed** (not yet seen in the store) —
-   kept OUT of the active map so they fall to `needs_review` until the site owner confirms them.
+9. ~~**Appendix-A family strings**~~ — ✅ **FINAL/approved**: all **82 families confirmed** by the
+   owner (`reports/family_collection_map_FINAL.md`, 29 collections). Code uses `.strip()` + the
+   authoritative map; the formerly-inferred 13 are now in the active map. No families pending.

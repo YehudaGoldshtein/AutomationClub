@@ -178,6 +178,8 @@ class ShopifyAdapter:
         # one family don't each create a duplicate (and don't re-query).
         cached = self._collection_id_by_title.get(title)
         if cached is not None:
+            self.logger.info("collection_resolved", title=title, collection_id=cached,
+                             matched=True, source="cache")
             return CollectionRef(id=cached, created=False)
 
         # Server-side exact-title filter — the store can have hundreds of
@@ -186,11 +188,20 @@ class ShopifyAdapter:
         resp = self.client.get("/custom_collections.json", params={"title": title, "limit": 250})
         if resp.status_code != 200:
             raise ShopifyError(f"custom_collections.json {resp.status_code}: {resp.text[:200]}")
-        for c in resp.json().get("custom_collections", []):
+        returned = resp.json().get("custom_collections", [])
+        returned_titles = [c.get("title") for c in returned]
+        for c in returned:
             if c.get("title") == title:
                 cid = str(c["id"])
                 self._collection_id_by_title[title] = cid
+                self.logger.info("collection_resolved", title=title, collection_id=cid,
+                                 matched=True, source="store", matched_title=c.get("title"))
                 return CollectionRef(id=cid, created=False)
+
+        # No exact match — log what the query returned so a near-miss (e.g. a
+        # whitespace/spelling difference) is visible in the trail before we create.
+        self.logger.info("collection_no_match", title=title, matched=False,
+                         returned_count=len(returned), returned_titles=returned_titles[:10])
 
         resp = self.client.post("/custom_collections.json", json={"custom_collection": {"title": title}})
         if resp.status_code not in (200, 201):
@@ -199,7 +210,7 @@ class ShopifyAdapter:
         c = resp.json()["custom_collection"]
         cid = str(c["id"])
         self._collection_id_by_title[title] = cid
-        self.logger.info("collection_created", collection_id=c["id"], title=title)
+        self.logger.info("collection_created", collection_id=c["id"], title=title, matched=False)
         return CollectionRef(id=cid, created=True)
 
     def delete_product(self, store_product_id: str) -> None:

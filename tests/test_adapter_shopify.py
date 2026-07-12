@@ -426,6 +426,58 @@ class TestEnsureCollection:
         assert len(posts) == 1
 
 
+class _RecordingLogger:
+    """Captures (event, context) tuples so tests can assert on log output."""
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def _rec(self, event, **ctx):
+        self.events.append((event, ctx))
+
+    debug = info = warning = error = exception = _rec
+
+    def bind(self, **ctx):
+        return self
+
+    def ctx(self, event):
+        return [c for e, c in self.events if e == event]
+
+    def names(self):
+        return [e for e, _ in self.events]
+
+
+class TestEnsureCollectionLogging:
+    def _adapter(self, fake, log):
+        transport = httpx.MockTransport(fake.handle)
+        client = httpx.Client(transport=transport, base_url="https://shop.test/admin/api/2024-10")
+        return ShopifyAdapter(client=client, logger=log)
+
+    def test_logs_what_matched_on_hit(self):
+        fake = _FakeShopifyApi([])
+        fake.custom_collections[7] = {"id": 7, "title": "אופנה"}
+        log = _RecordingLogger()
+        self._adapter(fake, log).ensure_collection("אופנה")
+
+        resolved = log.ctx("collection_resolved")
+        assert resolved, "expected a collection_resolved log"
+        assert resolved[0]["matched"] is True
+        assert resolved[0]["collection_id"] == "7"
+        assert resolved[0]["matched_title"] == "אופנה"
+
+    def test_logs_the_mismatch_before_creating(self):
+        fake = _FakeShopifyApi([])
+        fake.custom_collections[7] = {"id": 7, "title": "אופנה"}  # a non-matching one
+        log = _RecordingLogger()
+        self._adapter(fake, log).ensure_collection("סינרים")  # different title → no match
+
+        assert "collection_no_match" in log.names()
+        assert "collection_created" in log.names()
+        nm = log.ctx("collection_no_match")[0]
+        assert nm["matched"] is False
+        assert nm["title"] == "סינרים"
+        assert "returned_titles" in nm  # what the query returned, for debugging
+
+
 class TestAddToCollection:
     def test_posts_collect(self):
         fake = _FakeShopifyApi([])

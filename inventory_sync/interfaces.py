@@ -5,7 +5,10 @@ from typing import Iterable, Protocol
 
 from inventory_sync.domain import (
     SKU,
+    CollectionRef,
+    CreatedProduct,
     Product,
+    ProductDraft,
     StockChange,
     StockLevel,
     SyncRun,
@@ -21,6 +24,11 @@ class StorePlatform(Protocol):
     def update_stock(self, sku: SKU, stock: StockLevel) -> None: ...
     def unpublish(self, sku: SKU) -> None: ...
     def republish(self, sku: SKU) -> None: ...
+
+    # --- net-new product creation (Laura upload) ---
+    def create_product(self, draft: ProductDraft) -> CreatedProduct: ...
+    def ensure_collection(self, title: str) -> CollectionRef: ...
+    def add_to_collection(self, store_product_id: str, collection_id: str) -> None: ...
 
 
 class SupplierSource(Protocol):

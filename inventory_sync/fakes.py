@@ -35,6 +35,17 @@ class InMemoryStore:
     def get(self, sku: SKU) -> Product:
         return self._products[sku]
 
+    # --- net-new product creation (Laura upload) — SCAFFOLD ---
+
+    def create_product(self, draft):
+        raise NotImplementedError
+
+    def ensure_collection(self, title: str):
+        raise NotImplementedError
+
+    def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
+        raise NotImplementedError
+
 
 class InMemorySupplier:
     def __init__(

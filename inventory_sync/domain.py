@@ -98,6 +98,44 @@ class VendorProductSnapshot:
 
 
 @dataclass(frozen=True)
+class VariantSpec:
+    """One variant to create under a new product. `option_value` is the size
+    ("מידה"); None means a single-variant product with no size option."""
+    sku: SKU
+    option_value: str | None = None
+    barcode: str | None = None
+    price: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class ProductDraft:
+    """A net-new product to create in the store (Laura upload). Created as draft."""
+    title: str
+    body_html: str
+    vendor: str
+    product_type: str
+    tags: str
+    variants: tuple[VariantSpec, ...]
+    option_name: str = "מידה"
+    image_urls: tuple[str, ...] = ()
+    status: str = "draft"
+
+
+@dataclass(frozen=True)
+class CreatedProduct:
+    """Result of create_product — the store IDs minted for the new product."""
+    store_product_id: str
+    variant_ids_by_sku: dict[SKU, str]
+
+
+@dataclass(frozen=True)
+class CollectionRef:
+    """A resolved store collection. `created` is True if ensure_collection made it."""
+    id: str
+    created: bool
+
+
+@dataclass(frozen=True)
 class SyncError:
     message: str
     sku: SKU | None = None

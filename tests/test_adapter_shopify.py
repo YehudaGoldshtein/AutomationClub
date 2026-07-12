@@ -32,6 +32,15 @@ class _FakeShopifyApi:
             for v in p.get("variants", []):
                 self.inventory[v["inventory_item_id"]] = v.get("inventory_quantity", 0)
         self.request_log: list[tuple[str, str]] = []
+        # creation / collections state
+        self._next_id = 5000
+        self.custom_collections: dict[int, dict] = {}  # id -> {"id", "title"}
+        self.collects: list[dict] = []                 # {"product_id", "collection_id"}
+        self.created_payloads: list[dict] = []         # bodies POSTed to /products.json
+
+    def _new_id(self) -> int:
+        self._next_id += 1
+        return self._next_id
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -54,6 +63,21 @@ class _FakeShopifyApi:
                     if v["inventory_item_id"] == data["inventory_item_id"]:
                         v["inventory_quantity"] = data["available"]
             return httpx.Response(200, json={"inventory_level": data})
+        if method == "POST" and path.endswith("/products.json"):
+            return self._create_product(request)
+        if method == "GET" and path.endswith("/custom_collections.json"):
+            return httpx.Response(200, json={"custom_collections": list(self.custom_collections.values())})
+        if method == "POST" and path.endswith("/custom_collections.json"):
+            import json as _json
+            title = _json.loads(request.content.decode())["custom_collection"]["title"]
+            cid = self._new_id()
+            self.custom_collections[cid] = {"id": cid, "title": title}
+            return httpx.Response(201, json={"custom_collection": self.custom_collections[cid]})
+        if method == "POST" and path.endswith("/collects.json"):
+            import json as _json
+            collect = _json.loads(request.content.decode())["collect"]
+            self.collects.append(collect)
+            return httpx.Response(201, json={"collect": collect})
         if method == "PUT" and "/products/" in path and path.endswith(".json"):
             product_id_str = path.rsplit("/", 1)[-1].replace(".json", "")
             try:
@@ -68,6 +92,25 @@ class _FakeShopifyApi:
             return httpx.Response(200, json={"product": self.products.get(product_id, {})})
 
         return httpx.Response(404, text=f"unhandled {method} {path}")
+
+    def _create_product(self, request: httpx.Request) -> httpx.Response:
+        import json as _json
+        body = _json.loads(request.content.decode())
+        self.created_payloads.append(body)
+        product = dict(body["product"])
+        pid = self._new_id()
+        product["id"] = pid
+        stored_variants = []
+        for v in product.get("variants", []):
+            vid, inv = self._new_id(), self._new_id()
+            stored = {**v, "id": vid, "inventory_item_id": inv,
+                      "inventory_quantity": 0}
+            stored_variants.append(stored)
+            self.inventory[inv] = 0
+        product["variants"] = stored_variants
+        product.setdefault("status", "draft")
+        self.products[pid] = product
+        return httpx.Response(201, json={"product": product})
 
     def _products_json(self, request: httpx.Request) -> httpx.Response:
         params = dict(request.url.params)
@@ -264,6 +307,89 @@ class TestPublishStatus:
 
         with pytest.raises(ShopifyError):
             adapter.unpublish(SKU("NOPE"))
+
+
+class TestCreateProduct:
+    def _draft(self, variants):
+        from inventory_sync.domain import ProductDraft, VariantSpec  # noqa: F401
+        return ProductDraft(
+            title="חדש", body_html="<p>x</p>", vendor="לורה סוויסרה | laura swisra",
+            product_type="בגד גוף", tags="בגד גוף", variants=tuple(variants), status="draft",
+        )
+
+    def test_posts_product_and_returns_ids(self):
+        from inventory_sync.domain import SKU, VariantSpec
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        created = adapter.create_product(self._draft([VariantSpec(SKU("N-1"), price=Decimal("99.00"))]))
+
+        assert ("POST", "/admin/api/2024-10/products.json") in fake.request_log
+        assert created.store_product_id
+        assert SKU("N-1") in created.variant_ids_by_sku
+
+    def test_sends_draft_status_and_price(self):
+        from inventory_sync.domain import SKU, VariantSpec
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(self._draft([VariantSpec(SKU("N-1"), price=Decimal("99.00"))]))
+
+        product = fake.created_payloads[0]["product"]
+        assert product["status"] == "draft"
+        assert str(product["variants"][0]["price"]) == "99.00"
+
+    def test_multi_variant_sets_size_option(self):
+        from inventory_sync.domain import SKU, VariantSpec
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(self._draft([
+            VariantSpec(SKU("N-1"), option_value="NB"),
+            VariantSpec(SKU("N-2"), option_value="0-3"),
+        ]))
+
+        product = fake.created_payloads[0]["product"]
+        assert product["options"] == [{"name": "מידה"}]
+        assert {v["option1"] for v in product["variants"]} == {"NB", "0-3"}
+
+
+class TestEnsureCollection:
+    def test_creates_when_missing(self):
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        ref = adapter.ensure_collection("אופנה")
+
+        assert ref.created is True
+        assert ref.id
+        assert len(fake.custom_collections) == 1
+
+    def test_reuses_existing_and_posts_once(self):
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        first = adapter.ensure_collection("אופנה")
+        again = adapter.ensure_collection("אופנה")
+
+        assert again.created is False
+        assert again.id == first.id
+        posts = [(m, p) for (m, p) in fake.request_log
+                 if m == "POST" and p.endswith("/custom_collections.json")]
+        assert len(posts) == 1
+
+
+class TestAddToCollection:
+    def test_posts_collect(self):
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.add_to_collection("12345", "67890")
+
+        assert {"product_id": 12345, "collection_id": 67890} in [
+            {"product_id": int(c["product_id"]), "collection_id": int(c["collection_id"])}
+            for c in fake.collects
+        ]
 
 
 class TestShopifySatisfiesStoreContract(StoreContract):

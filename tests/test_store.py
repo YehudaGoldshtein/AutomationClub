@@ -1,11 +1,33 @@
 """Contract tests for StorePlatform. Every implementation must pass these."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
-from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
+from inventory_sync.domain import (
+    SKU,
+    ProductDraft,
+    Product,
+    StockLevel,
+    VariantSpec,
+    VendorProductId,
+)
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.interfaces import StorePlatform
+
+
+def _draft(title: str, variants: list[VariantSpec], status: str = "draft") -> ProductDraft:
+    return ProductDraft(
+        title=title,
+        body_html="<p>x</p>",
+        vendor="לורה סוויסרה | laura swisra",
+        product_type="בגד גוף",
+        tags="בגד גוף",
+        variants=tuple(variants),
+        image_urls=(),
+        status=status,
+    )
 
 
 SEEDED_PRODUCTS: list[Product] = [
@@ -71,6 +93,49 @@ class StoreContract:
         store.unpublish(SKU("ABC-001"))
         by_sku = {p.sku: p for p in store.list_products()}
         assert by_sku[SKU("ABC-001")].stock == StockLevel(5)
+
+    # --- net-new product creation (Laura upload) ---
+
+    def test_create_product_appears_in_list(self, store: StorePlatform):
+        store.create_product(_draft("חדש", [VariantSpec(SKU("NEW-1"), price=Decimal("99"))]))
+        assert SKU("NEW-1") in {p.sku for p in store.list_products()}
+
+    def test_create_product_returns_store_product_id(self, store: StorePlatform):
+        created = store.create_product(_draft("חדש", [VariantSpec(SKU("NEW-1"))]))
+        assert created.store_product_id
+        assert SKU("NEW-1") in created.variant_ids_by_sku
+
+    def test_created_draft_is_unpublished(self, store: StorePlatform):
+        store.create_product(_draft("חדש", [VariantSpec(SKU("NEW-1"))], status="draft"))
+        by_sku = {p.sku: p for p in store.list_products()}
+        assert by_sku[SKU("NEW-1")].published is False
+
+    def test_create_multi_variant_lists_all_skus(self, store: StorePlatform):
+        created = store.create_product(_draft("סט", [
+            VariantSpec(SKU("NEW-1"), option_value="NB"),
+            VariantSpec(SKU("NEW-2"), option_value="0-3"),
+        ]))
+        skus = {p.sku for p in store.list_products()}
+        assert {SKU("NEW-1"), SKU("NEW-2")} <= skus
+        assert set(created.variant_ids_by_sku) == {SKU("NEW-1"), SKU("NEW-2")}
+
+    # --- collections ---
+
+    def test_ensure_collection_creates_when_missing(self, store: StorePlatform):
+        ref = store.ensure_collection("אופנה")
+        assert ref.created is True
+        assert ref.id
+
+    def test_ensure_collection_idempotent(self, store: StorePlatform):
+        first = store.ensure_collection("אופנה")
+        again = store.ensure_collection("אופנה")
+        assert again.created is False
+        assert again.id == first.id
+
+    def test_add_to_collection_succeeds(self, store: StorePlatform):
+        created = store.create_product(_draft("חדש", [VariantSpec(SKU("NEW-1"))]))
+        ref = store.ensure_collection("אופנה")
+        store.add_to_collection(created.store_product_id, ref.id)  # must not raise
 
 
 class TestInMemoryStore(StoreContract):

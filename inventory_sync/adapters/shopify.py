@@ -112,6 +112,17 @@ class ShopifyAdapter:
     def republish(self, sku: SKU) -> None:
         self._set_product_status(sku, "active")
 
+    # --- net-new product creation (Laura upload) — SCAFFOLD ---
+
+    def create_product(self, draft):
+        raise NotImplementedError
+
+    def ensure_collection(self, title: str):
+        raise NotImplementedError
+
+    def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
+        raise NotImplementedError
+
     # --- private ---
 
     def _set_product_status(self, sku: SKU, status: str) -> None:

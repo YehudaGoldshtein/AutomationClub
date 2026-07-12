@@ -14,6 +14,7 @@ import openpyxl
 import pytest
 import sqlalchemy
 
+from inventory_sync.adapters.shopify import ShopifyError
 from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.laura_mapping import CATEGORY_COLLECTION_ID
@@ -163,6 +164,44 @@ class TestIngestNeedsReview:
         store, ps = _stores()
         ingest_products([_row("N-1", text=None)], store, ps, C, LOG)
         assert ps.list_pending(C)[0].needs_review is True
+
+
+class _FlakyStore(InMemoryStore):
+    """InMemoryStore that can be told to fail create_product."""
+
+    def __init__(self, fail_skus=(), fail_if_image=False, **kw):
+        super().__init__(**kw)
+        self.fail_skus = set(fail_skus)
+        self.fail_if_image = fail_if_image
+
+    def create_product(self, draft):
+        if self.fail_if_image and draft.image_urls:
+            raise ShopifyError('422: {"errors":{"product":["Image URL is invalid"]}}')
+        if any(str(v.sku) in self.fail_skus for v in draft.variants):
+            raise ShopifyError("boom")
+        return super().create_product(draft)
+
+
+class TestIngestErrorIsolation:
+    def test_one_bad_product_does_not_abort_the_batch(self):
+        store = _FlakyStore(fail_skus={"BAD-1"})
+        engine = sqlalchemy.create_engine("sqlite:///:memory:")
+        ps = SqlStoreProductStore(engine=engine, logger=get("test"))
+        ps.create_schema()
+        rows = [_row("BAD-1", desc="פריט תקול NB"), _row("GOOD-1", desc="פריט תקין NB")]
+        summary = ingest_products(rows, store, ps, C, LOG)
+        assert summary.errors == 1
+        assert summary.created == 1                       # GOOD-1 still created
+        assert SKU("GOOD-1") in {p.sku for p in store.list_products()}
+
+    def test_invalid_image_retries_without_image_and_flags_review(self):
+        store = _FlakyStore(fail_if_image=True)
+        engine = sqlalchemy.create_engine("sqlite:///:memory:")
+        ps = SqlStoreProductStore(engine=engine, logger=get("test"))
+        ps.create_schema()
+        summary = ingest_products([_row("N-1", image="http://bad/x.jpg")], store, ps, C, LOG)
+        assert summary.created == 1                       # salvaged without the image
+        assert ps.get(C, "N-1").needs_review is True
 
 
 class TestIngestDryRun:

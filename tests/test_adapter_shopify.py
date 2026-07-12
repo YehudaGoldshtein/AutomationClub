@@ -67,7 +67,17 @@ class _FakeShopifyApi:
         if method == "POST" and path.endswith("/products.json"):
             return self._create_product(request)
         if method == "GET" and path.endswith("/custom_collections.json"):
-            return httpx.Response(200, json={"custom_collections": list(self.custom_collections.values())})
+            params = dict(request.url.params)
+            title = params.get("title")
+            cols = list(self.custom_collections.values())
+            if title is not None:
+                # Server-side exact-title filter (what the real API supports).
+                cols = [c for c in cols if c["title"] == title]
+            else:
+                # No filter → only the first page, modelling the real store where
+                # a target collection can sit beyond the first page of 297.
+                cols = cols[: int(params.get("limit", 50))]
+            return httpx.Response(200, json={"custom_collections": cols})
         if method == "POST" and path.endswith("/custom_collections.json"):
             import json as _json
             title = _json.loads(request.content.decode())["custom_collection"]["title"]
@@ -375,6 +385,38 @@ class TestEnsureCollection:
 
         assert again.created is False
         assert again.id == first.id
+        posts = [(m, p) for (m, p) in fake.request_log
+                 if m == "POST" and p.endswith("/custom_collections.json")]
+        assert len(posts) == 1
+
+    def test_reuses_existing_collection_beyond_first_page(self):
+        """Regression: with hundreds of collections, the target sits past page 1.
+        A title filter must still find it instead of creating a duplicate."""
+        fake = _FakeShopifyApi([])
+        for i in range(100):
+            fake.custom_collections[1000 + i] = {"id": 1000 + i, "title": f"brand-{i}"}
+        fake.custom_collections[9999] = {"id": 9999, "title": "מגבות לתינוק"}  # buried
+        adapter = _make_adapter(fake)
+
+        ref = adapter.ensure_collection("מגבות לתינוק")
+
+        assert ref.created is False
+        assert ref.id == "9999"
+        posts = [(m, p) for (m, p) in fake.request_log
+                 if m == "POST" and p.endswith("/custom_collections.json")]
+        assert posts == []  # must NOT create a duplicate
+
+    def test_created_once_within_a_run(self):
+        """Two products mapping to the same new collection → one create, not two."""
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        first = adapter.ensure_collection("סט מצעים למיטת תינוק")
+        second = adapter.ensure_collection("סט מצעים למיטת תינוק")
+
+        assert first.created is True
+        assert second.created is False
+        assert second.id == first.id
         posts = [(m, p) for (m, p) in fake.request_log
                  if m == "POST" and p.endswith("/custom_collections.json")]
         assert len(posts) == 1

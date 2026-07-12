@@ -11,7 +11,7 @@ duplicated).
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 
 import openpyxl
@@ -30,6 +30,7 @@ class IngestSummary:
     created: int = 0
     skipped_existing: int = 0
     flagged_review: int = 0
+    errors: int = 0            # products that failed to create (isolated, batch continues)
     would_create: int = 0      # dry-run: products that would be created
     dry_run: bool = False
     created_skus: list[str] = field(default_factory=list)
@@ -104,6 +105,31 @@ def parse_laura_xlsx(data: bytes) -> list[LauraRow]:
     return out
 
 
+def _create_and_record(store, product_store, customer_id, group, draft, sub_name, needs_review, logger) -> None:
+    """Create one product, attach collections, record the pending row.
+
+    Product is created FIRST so a failed create leaves no orphan collection.
+    """
+    created = store.create_product(draft)
+    sub_ref = store.ensure_collection(sub_name) if sub_name else None
+    store.add_to_collection(created.store_product_id, CATEGORY_COLLECTION_ID)
+    if sub_ref is not None:
+        store.add_to_collection(created.store_product_id, sub_ref.id)
+    is_new_collection = bool(sub_ref and sub_ref.created)
+    product_store.write_pending(customer_id, [
+        NewStoreProduct(
+            sku=str(v.sku),
+            store_product_id=created.store_product_id,
+            title=group.title,
+            is_new_collection=is_new_collection,
+            needs_review=needs_review,
+        )
+        for v in group.variants
+    ])
+    logger.info("ingest_created", title=group.title, store_product_id=created.store_product_id,
+                variants=len(group.variants), is_new_collection=is_new_collection, needs_review=needs_review)
+
+
 def ingest_products(rows, store, product_store, customer_id: str, logger, dry_run: bool = False) -> IngestSummary:
     """Group rows, skip existing SKUs, create new products as drafts, record pending."""
     summary = IngestSummary(dry_run=dry_run)
@@ -141,29 +167,31 @@ def ingest_products(rows, store, product_store, customer_id: str, logger, dry_ru
             continue
 
         draft = to_product_draft(group)
-        sub_ref = store.ensure_collection(sub_name) if sub_name else None
-        created = store.create_product(draft)
-        store.add_to_collection(created.store_product_id, CATEGORY_COLLECTION_ID)
-        if sub_ref is not None:
-            store.add_to_collection(created.store_product_id, sub_ref.id)
-
-        product_store.write_pending(customer_id, [
-            NewStoreProduct(
-                sku=str(v.sku),
-                store_product_id=created.store_product_id,
-                title=group.title,
-                is_new_collection=bool(sub_ref and sub_ref.created),
-                needs_review=needs_review,
-            )
-            for v in group.variants
-        ])
+        try:
+            _create_and_record(store, product_store, customer_id, group, draft, sub_name, needs_review, logger)
+        except Exception as first_err:
+            # A bad image URL is the common failure (Shopify 422). Salvage the
+            # product by retrying once WITHOUT images, flagged for review.
+            if draft.image_urls:
+                try:
+                    _create_and_record(store, product_store, customer_id, group,
+                                       replace(draft, image_urls=()), sub_name, True, logger)
+                    summary.created += 1
+                    summary.created_skus.extend(sorted(group_skus))
+                    logger.warning("ingest_created_without_image", title=group.title,
+                                   error=str(first_err)[:200])
+                    continue
+                except Exception as retry_err:
+                    first_err = retry_err
+            # Isolated failure — record and move on; never abort the batch.
+            logger.error("ingest_create_failed", title=group.title,
+                         skus=sorted(group_skus), error=str(first_err)[:200])
+            summary.errors += 1
+            continue
         summary.created += 1
         summary.created_skus.extend(sorted(group_skus))
-        logger.info("ingest_created", title=group.title,
-                    store_product_id=created.store_product_id, variants=len(group.variants),
-                    is_new_collection=bool(sub_ref and sub_ref.created), needs_review=needs_review)
 
     logger.info("ingest_summary", customer_id=customer_id, created=summary.created,
                 skipped_existing=summary.skipped_existing, flagged_review=summary.flagged_review,
-                would_create=summary.would_create, dry_run=dry_run)
+                errors=summary.errors, would_create=summary.would_create, dry_run=dry_run)
     return summary

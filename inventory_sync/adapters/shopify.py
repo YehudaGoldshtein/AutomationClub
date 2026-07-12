@@ -52,6 +52,7 @@ class ShopifyAdapter:
 
     _variant_by_sku: dict[SKU, _VariantRef] = field(default_factory=dict, init=False, repr=False)
     _location_id: int | None = field(default=None, init=False, repr=False)
+    _collection_id_by_title: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
     # --- StorePlatform ---
 
@@ -173,20 +174,33 @@ class ShopifyAdapter:
         return CreatedProduct(store_product_id=str(product_id), variant_ids_by_sku=variant_ids)
 
     def ensure_collection(self, title: str) -> CollectionRef:
-        resp = self.client.get("/custom_collections.json")
+        # Cache within the run: same collection is ensured once, so N products of
+        # one family don't each create a duplicate (and don't re-query).
+        cached = self._collection_id_by_title.get(title)
+        if cached is not None:
+            return CollectionRef(id=cached, created=False)
+
+        # Server-side exact-title filter — the store can have hundreds of
+        # collections, so an unfiltered (paginated) list would miss the match
+        # and spam duplicates. `title=` returns just the one we want.
+        resp = self.client.get("/custom_collections.json", params={"title": title, "limit": 250})
         if resp.status_code != 200:
             raise ShopifyError(f"custom_collections.json {resp.status_code}: {resp.text[:200]}")
         for c in resp.json().get("custom_collections", []):
             if c.get("title") == title:
-                return CollectionRef(id=str(c["id"]), created=False)
+                cid = str(c["id"])
+                self._collection_id_by_title[title] = cid
+                return CollectionRef(id=cid, created=False)
 
         resp = self.client.post("/custom_collections.json", json={"custom_collection": {"title": title}})
         if resp.status_code not in (200, 201):
             self.logger.error("collection_create_failed", status=resp.status_code, body=resp.text[:200])
             raise ShopifyError(f"custom_collections.json POST {resp.status_code}: {resp.text[:200]}")
         c = resp.json()["custom_collection"]
+        cid = str(c["id"])
+        self._collection_id_by_title[title] = cid
         self.logger.info("collection_created", collection_id=c["id"], title=title)
-        return CollectionRef(id=str(c["id"]), created=True)
+        return CollectionRef(id=cid, created=True)
 
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
         resp = self.client.post(

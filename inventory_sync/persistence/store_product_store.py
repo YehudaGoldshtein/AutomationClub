@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -101,27 +101,112 @@ class SqlStoreProductStore:
             with session.begin():
                 session.execute(stmt)
 
-    # --- lifecycle / pending-review flow (SCAFFOLD — see tests) ---
+    # --- lifecycle / pending-review flow ---
 
     def get(self, customer_id: str, sku: str) -> StoreProductRecord | None:
-        raise NotImplementedError
+        with Session(self.engine) as session:
+            row = session.execute(
+                select(store_products).where(
+                    store_products.c.customer_id == customer_id,
+                    store_products.c.sku == sku,
+                )
+            ).mappings().first()
+        return _to_record(row) if row else None
 
     def write_pending(self, customer_id: str, items: Iterable[NewStoreProduct]) -> None:
-        """Record newly-created draft products: status=draft, approved=false."""
-        raise NotImplementedError
+        """Record newly-created draft products: status=draft, approved=false.
+
+        Upsert (idempotent re-ingest). On conflict, refresh metadata + flags only —
+        never resets status/approved, so a re-ingest can't un-approve a pending row.
+        """
+        now = datetime.now(timezone.utc)
+        rows = [
+            {
+                "customer_id": customer_id,
+                "sku": it.sku,
+                "handle": it.handle,
+                "title": it.title,
+                "store_product_id": it.store_product_id,
+                "status": "draft",
+                "approved": False,
+                "approved_at": None,
+                "is_new_collection": it.is_new_collection,
+                "needs_review": it.needs_review,
+                "updated_at": now,
+            }
+            for it in items
+        ]
+        if not rows:
+            return
+        insert = pg_insert if self.engine.dialect.name == "postgresql" else sqlite_insert
+        stmt = insert(store_products).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[store_products.c.customer_id, store_products.c.sku],
+            set_={
+                "handle": stmt.excluded.handle,
+                "title": stmt.excluded.title,
+                "store_product_id": stmt.excluded.store_product_id,
+                "is_new_collection": stmt.excluded.is_new_collection,
+                "needs_review": stmt.excluded.needs_review,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        with Session(self.engine) as session:
+            with session.begin():
+                session.execute(stmt)
 
     def list_pending(self, customer_id: str) -> list[StoreProductRecord]:
         """Rows awaiting confirmation: status=draft AND approved=false."""
-        raise NotImplementedError
+        return self._list_by_state(customer_id, status="draft", approved=False)
 
     def list_approved_drafts(self, customer_id: str) -> list[StoreProductRecord]:
         """Confirmed-but-not-yet-live rows: status=draft AND approved=true."""
-        raise NotImplementedError
+        return self._list_by_state(customer_id, status="draft", approved=True)
+
+    def _list_by_state(self, customer_id: str, status: str, approved: bool) -> list[StoreProductRecord]:
+        with Session(self.engine) as session:
+            rows = session.execute(
+                select(store_products).where(
+                    store_products.c.customer_id == customer_id,
+                    store_products.c.status == status,
+                    store_products.c.approved == approved,
+                )
+            ).mappings().all()
+        return [_to_record(r) for r in rows]
 
     def mark_approved(self, customer_id: str, store_product_id: str) -> None:
         """Dashboard confirm: set approved=true + approved_at for all rows of the product."""
-        raise NotImplementedError
+        now = datetime.now(timezone.utc)
+        self._update_product(customer_id, store_product_id, {"approved": True, "approved_at": now})
 
     def mark_active(self, customer_id: str, store_product_id: str) -> None:
         """Sync activation: flip status=active for all rows of the product."""
-        raise NotImplementedError
+        self._update_product(customer_id, store_product_id, {"status": "active"})
+
+    def _update_product(self, customer_id: str, store_product_id: str, values: dict) -> None:
+        with Session(self.engine) as session:
+            with session.begin():
+                session.execute(
+                    update(store_products)
+                    .where(
+                        store_products.c.customer_id == customer_id,
+                        store_products.c.store_product_id == store_product_id,
+                    )
+                    .values(**values)
+                )
+
+
+def _to_record(row) -> StoreProductRecord:
+    return StoreProductRecord(
+        customer_id=row["customer_id"],
+        sku=row["sku"],
+        handle=row["handle"],
+        title=row["title"],
+        store_product_id=row["store_product_id"],
+        status=row["status"],
+        approved=bool(row["approved"]),
+        approved_at=row["approved_at"],
+        is_new_collection=bool(row["is_new_collection"]),
+        needs_review=bool(row["needs_review"]),
+        updated_at=row["updated_at"],
+    )

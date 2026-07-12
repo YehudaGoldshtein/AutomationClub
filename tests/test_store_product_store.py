@@ -11,8 +11,11 @@ from __future__ import annotations
 import pytest
 import sqlalchemy
 
+from sqlalchemy import text as sa_text
+
 from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
 from inventory_sync.log import get
+from inventory_sync.persistence.migrations import add_store_products_lifecycle_columns
 from inventory_sync.persistence.store_product_store import (
     NewStoreProduct,
     SqlStoreProductStore,
@@ -134,3 +137,40 @@ class TestApproveThenActivate:
         store.write_pending(OTHER, [_pending("D-9", pid="901")])  # same pid, different tenant
         store.mark_approved(C, "901")
         assert store.get(OTHER, "D-9").approved is False
+
+
+class TestMigration:
+    """The migration that upgrades an EXISTING (pre-lifecycle) store_products table."""
+
+    def _legacy_engine(self):
+        engine = sqlalchemy.create_engine("sqlite:///:memory:")
+        with engine.begin() as conn:
+            conn.execute(sa_text(
+                "CREATE TABLE store_products ("
+                "customer_id TEXT NOT NULL, sku TEXT NOT NULL, handle TEXT, title TEXT, "
+                "store_product_id TEXT, updated_at TIMESTAMP NOT NULL, "
+                "PRIMARY KEY (customer_id, sku))"
+            ))
+            conn.execute(sa_text(
+                "INSERT INTO store_products "
+                "(customer_id, sku, handle, title, store_product_id, updated_at) "
+                "VALUES ('maxbaby', 'OLD-1', 'h', 't', '100', '2026-01-01 00:00:00')"
+            ))
+        return engine
+
+    def test_adds_columns_and_backfills_existing_rows_active(self):
+        engine = self._legacy_engine()
+        added = add_store_products_lifecycle_columns(engine)
+        assert set(added) == {"status", "approved", "approved_at", "is_new_collection", "needs_review"}
+        rec = SqlStoreProductStore(engine=engine, logger=get("test")).get("maxbaby", "OLD-1")
+        assert rec.status == "active"   # pre-existing live products are not swept into review
+        assert rec.approved is True
+
+    def test_idempotent_second_run_is_noop(self):
+        engine = self._legacy_engine()
+        add_store_products_lifecycle_columns(engine)
+        assert add_store_products_lifecycle_columns(engine) == []
+
+    def test_noop_when_table_absent(self):
+        engine = sqlalchemy.create_engine("sqlite:///:memory:")
+        assert add_store_products_lifecycle_columns(engine) == []

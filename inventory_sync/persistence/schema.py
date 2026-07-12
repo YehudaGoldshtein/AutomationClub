@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    text,
 )
 
 
@@ -158,6 +159,14 @@ store_products = Table(
     Column("title", String, nullable=True),
     Column("store_product_id", String, nullable=True),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    # --- lifecycle (Laura upload: draft → approve → activate) ---
+    # server_default so the per-sync upsert (which omits these) makes existing/
+    # discovered products active+approved, while write_pending sets draft/unapproved.
+    Column("status", String, nullable=False, server_default=text("'active'")),
+    Column("approved", Boolean, nullable=False, server_default=text("1")),
+    Column("approved_at", DateTime(timezone=True), nullable=True),
+    Column("is_new_collection", Boolean, nullable=False, server_default=text("0")),
+    Column("needs_review", Boolean, nullable=False, server_default=text("0")),
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))

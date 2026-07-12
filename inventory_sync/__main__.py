@@ -33,6 +33,7 @@ from inventory_sync.customers import (
     RouteSpec,
 )
 from inventory_sync.engine import SyncEngine
+from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.log import Logger, configure
 from inventory_sync.notifications import (
     EVENT_ARCHIVE_AUDIT,
@@ -277,6 +278,28 @@ def _print_preview(subject: str, body: str, footer: str = "") -> None:
         print(footer)
 
 
+def cmd_ingest(args, log: Logger, cfg: Config) -> int:
+    """Ingest a Laura product xlsx blob: create net-new products as drafts."""
+    log = log.bind(customer_id=args.customer_id)
+    log.info("ingest_command_start", blob_url=args.blob_url, dry_run=args.dry_run)
+
+    resp = httpx.get(args.blob_url, timeout=30.0, follow_redirects=True)
+    resp.raise_for_status()
+    rows = parse_laura_xlsx(resp.content)
+    log.info("ingest_parsed", rows=len(rows))
+
+    store = _build_shopify_adapter(cfg, log)
+    product_store = _build_store_product_store(cfg, log)
+    summary = ingest_products(rows, store, product_store, args.customer_id, log, dry_run=args.dry_run)
+
+    print(
+        f"ingest: parsed={len(rows)} created={summary.created} "
+        f"skipped_existing={summary.skipped_existing} flagged_review={summary.flagged_review} "
+        f"would_create={summary.would_create} dry_run={summary.dry_run}"
+    )
+    return 0
+
+
 def _build_shopify_adapter(cfg: Config, log: Logger) -> ShopifyAdapter:
     """Legacy single-customer Shopify adapter (used by archive-audit command)."""
     client = httpx.Client(
@@ -469,6 +492,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true",
                    help="Plan changes and send summary notifications, but don't write to the store")
 
+    ing = sub.add_parser(
+        "ingest",
+        help="Ingest a Laura product xlsx blob: create net-new products as drafts",
+    )
+    ing.add_argument("--blob-url", required=True, help="URL of the uploaded xlsx blob")
+    ing.add_argument("--customer-id", required=True, help="Tenant the blob belongs to")
+    ing.add_argument("--dry-run", action="store_true",
+                     help="Parse + group + report what would be created, but write nothing")
+
     args = parser.parse_args(argv)
     command = args.command or "bootstrap"
 
@@ -482,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_archive_audit(args, log, cfg)
     if command == "sync":
         return cmd_sync(args, log, cfg)
+    if command == "ingest":
+        return cmd_ingest(args, log, cfg)
 
     parser.print_help()
     return 1

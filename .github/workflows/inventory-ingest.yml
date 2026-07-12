@@ -1,9 +1,8 @@
 name: inventory-ingest
 
-# STUB — the "digest an uploaded blob into the DB" step.
-# Real implementation TBD. For now this only validates inputs and
-# fakes a happy-path ingest so downstream callers (dashboard/upload
-# flow) have a stable workflow_dispatch target to hit.
+# Digest an uploaded Laura product xlsx into the store: create net-new products
+# as DRAFTS (pending dashboard confirmation) and record them in store_products.
+# Dispatched by the dashboard upload flow with the blob URL + customer id.
 
 on:
   workflow_dispatch:
@@ -16,56 +15,50 @@ on:
         description: 'Tenant the blob belongs to'
         type: string
         required: true
+      dry_run:
+        description: 'Parse + group + report what would be created, but write nothing'
+        type: boolean
+        default: false
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - name: Echo inputs
-        run: |
-          echo "customer_id: ${{ inputs.customer_id }}"
-          echo "blob_url:    ${{ inputs.blob_url }}"
-
-      - name: Ingest blob into DB (stub)
-        run: |
-          echo "STUB: would download ${{ inputs.blob_url }}"
-          echo "STUB: would parse it and upsert rows for customer '${{ inputs.customer_id }}'"
-          echo "STUB: no DB writes performed — happy path faked."
-
-      - name: Ship stub event to Axiom
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Ingest blob
         env:
+          # --- Shopify (create products / collections) ---
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          # --- Vendor (config load) ---
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          # --- Persistent state (Neon) ---
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # --- Axiom centralized logging (ingest_* events, customer_id-bound) ---
           AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
-          # Mirror the other services: no token/dataset -> stdout only, no-op.
-          if [[ -z "$AXIOM_API_TOKEN" || -z "$AXIOM_DATASET" ]]; then
-            echo "Axiom not configured — skipping event ship (stdout only)."
-            exit 0
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            python -m inventory_sync ingest \
+              --blob-url "${{ inputs.blob_url }}" \
+              --customer-id "${{ inputs.customer_id }}" \
+              --dry-run
+          else
+            python -m inventory_sync ingest \
+              --blob-url "${{ inputs.blob_url }}" \
+              --customer-id "${{ inputs.customer_id }}"
           fi
-          api_url="${AXIOM_API_URL:-https://api.axiom.co}"
-          payload=$(jq -nc \
-            --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg cid "${{ inputs.customer_id }}" \
-            --arg blob "${{ inputs.blob_url }}" \
-            --arg run "${{ github.run_id }}" \
-            '[{
-              _time: $t,
-              level: "INFO",
-              logger: "inventory_sync.ingest",
-              msg: "inventory_ingest_stub",
-              service: "inventory-sync",
-              customer_id: $cid,
-              blob_url: $blob,
-              stub: true,
-              github_run_id: $run
-            }]')
-          # Logging must never fail the job — swallow curl errors.
-          curl -sS --fail-with-body -m 10 \
-            -X POST "${api_url%/}/v1/datasets/${AXIOM_DATASET}/ingest" \
-            -H "Authorization: Bearer ${AXIOM_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
-            && echo "Shipped inventory_ingest_stub to Axiom." \
-            || echo "Axiom ship failed — ignoring (logging must not fail the job)."

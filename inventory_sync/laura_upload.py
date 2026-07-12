@@ -54,6 +54,7 @@ class ProductGroup:
     family: str
     variants: tuple[Variant, ...]
     image_urls: tuple[str, ...] = ()
+    body_text: str | None = None      # first non-empty `טקסט` among the grouped rows
     needs_review: bool = False
 
 

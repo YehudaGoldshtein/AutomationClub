@@ -1,0 +1,43 @@
+name: reconcile
+
+# Activate approved draft products (draft → active) for one customer.
+# Dispatched by the dashboard "Activate now" button after a user confirms
+# pending items. The hourly sync also reconciles automatically, so this is
+# just for immediate activation.
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Tenant to reconcile'
+        type: string
+        required: true
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Reconcile approved drafts
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: python -m inventory_sync reconcile --customer-id "${{ inputs.customer_id }}"

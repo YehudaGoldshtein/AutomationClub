@@ -121,7 +121,8 @@ def _make_group(title: str, members: list[tuple[LauraRow, SizeExtraction]], vari
     family = members[0][0].family
     # De-duped, order-preserving image list.
     images = tuple(OrderedDict.fromkeys(r.image_url for r, _ in members if r.image_url))
-    return ProductGroup(title=title, family=family, variants=variants, image_urls=images)
+    body_text = next((r.text for r, _ in members if r.text), None)
+    return ProductGroup(title=title, family=family, variants=variants, image_urls=images, body_text=body_text)
 
 
 def group_products(rows: list[LauraRow]) -> list[ProductGroup]:

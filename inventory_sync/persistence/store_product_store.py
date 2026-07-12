@@ -154,6 +154,12 @@ class SqlStoreProductStore:
         with Session(self.engine) as session:
             with session.begin():
                 session.execute(stmt)
+        self.logger.info(
+            "store_products_pending_written",
+            customer_id=customer_id,
+            count=len(rows),
+            skus=[r["sku"] for r in rows],
+        )
 
     def list_pending(self, customer_id: str) -> list[StoreProductRecord]:
         """Rows awaiting confirmation: status=draft AND approved=false."""
@@ -178,10 +184,12 @@ class SqlStoreProductStore:
         """Dashboard confirm: set approved=true + approved_at for all rows of the product."""
         now = datetime.now(timezone.utc)
         self._update_product(customer_id, store_product_id, {"approved": True, "approved_at": now})
+        self.logger.info("store_product_approved", customer_id=customer_id, store_product_id=store_product_id)
 
     def mark_active(self, customer_id: str, store_product_id: str) -> None:
         """Sync activation: flip status=active for all rows of the product."""
         self._update_product(customer_id, store_product_id, {"status": "active"})
+        self.logger.info("store_product_activated", customer_id=customer_id, store_product_id=store_product_id)
 
     def _update_product(self, customer_id: str, store_product_id: str, values: dict) -> None:
         with Session(self.engine) as session:

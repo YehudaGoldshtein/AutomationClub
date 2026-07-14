@@ -23,7 +23,10 @@ on:
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Full-catalog onboarding is ~1h (sequential Shopify REST @ ~3.5s/product).
+    # Set high so a one-shot run completes. NOTE: GitHub-hosted runners hard-cap
+    # job execution at 6h (360 min) regardless of this value — ample for ~1h.
+    timeout-minutes: 600
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:

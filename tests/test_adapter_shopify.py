@@ -369,6 +369,64 @@ class TestCreateProduct:
         assert {v["option1"] for v in product["variants"]} == {"NB", "0-3"}
 
 
+class TestCreateProductMetafields:
+    def test_writes_metafields_template_and_inventory_management(self):
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU, Metafield
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        draft = ProductDraft(
+            title="שידה", body_html="<p>x</p>", vendor="segal | סגל",
+            product_type="שידות", tags="שידות",
+            variants=(VariantSpec(SKU("S-1"), price=Decimal("100"), inventory_quantity=7),),
+            status="draft",
+            metafields=(Metafield("custom", "infoo", "rich_text_field", '{"x":1}'),),
+            template_suffix="furniture-product-page",
+        )
+        adapter.create_product(draft)
+
+        product = fake.created_payloads[0]["product"]
+        assert product["template_suffix"] == "furniture-product-page"
+        assert product["metafields"][0] == {
+            "namespace": "custom", "key": "infoo",
+            "type": "rich_text_field", "value": '{"x":1}',
+        }
+        assert product["variants"][0]["inventory_management"] == "shopify"
+
+    def test_laura_style_draft_omits_new_keys(self):
+        """Regression: a draft without metafields/template/stock (Laura) must produce
+        the same minimal payload as before — no new keys leak in."""
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(ProductDraft(
+            title="חדש", body_html="<p>x</p>", vendor="לורה סוויסרה | laura swisra",
+            product_type="בגד גוף", tags="בגד גוף",
+            variants=(VariantSpec(SKU("N-1"), price=Decimal("99")),), status="draft",
+        ))
+
+        product = fake.created_payloads[0]["product"]
+        assert "metafields" not in product
+        assert "template_suffix" not in product
+        assert "inventory_management" not in product["variants"][0]
+
+    def test_create_then_update_stock_sets_level(self):
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(ProductDraft(
+            title="שידה", body_html="<p>x</p>", vendor="segal | סגל",
+            product_type="שידות", tags="שידות",
+            variants=(VariantSpec(SKU("S-1"), price=Decimal("100"), inventory_quantity=7),),
+            status="draft",
+        ))
+        adapter.update_stock(SKU("S-1"), StockLevel(7))  # ref cached on create
+
+        assert 7 in fake.inventory.values()
+
+
 class TestEnsureCollection:
     def test_creates_when_missing(self):
         fake = _FakeShopifyApi([])

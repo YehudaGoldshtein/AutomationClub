@@ -134,6 +134,9 @@ class ShopifyAdapter:
                 vp["barcode"] = v.barcode
             if v.price is not None:
                 vp["price"] = str(v.price)
+            if v.inventory_quantity is not None:
+                # Track inventory so a follow-up update_stock can set the level.
+                vp["inventory_management"] = "shopify"
             variants_payload.append(vp)
 
         product: dict = {
@@ -149,6 +152,13 @@ class ShopifyAdapter:
             product["options"] = [{"name": draft.option_name}]
         if draft.image_urls:
             product["images"] = [{"src": url} for url in draft.image_urls]
+        if draft.metafields:
+            product["metafields"] = [
+                {"namespace": m.namespace, "key": m.key, "type": m.type, "value": m.value}
+                for m in draft.metafields
+            ]
+        if draft.template_suffix:
+            product["template_suffix"] = draft.template_suffix
 
         resp = self.client.post("/products.json", json={"product": product})
         if resp.status_code not in (200, 201):

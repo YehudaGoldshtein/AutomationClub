@@ -143,6 +143,23 @@ class StoreContract:
         store.delete_product(created.store_product_id)
         assert SKU("DEL-1") not in {p.sku for p in store.list_products()}
 
+    def test_create_product_with_metafields_and_template_ok(self, store: StorePlatform):
+        """Segal drafts carry metafields, template_suffix, and inventory_quantity —
+        every StorePlatform must accept the extended draft without error."""
+        from inventory_sync.domain import Metafield
+
+        draft = ProductDraft(
+            title="עם מטא", body_html="<p>x</p>", vendor="segal | סגל",
+            product_type="שידות", tags="שידות",
+            variants=(VariantSpec(SKU("MF-1"), price=Decimal("100"), inventory_quantity=3),),
+            status="draft",
+            metafields=(Metafield("custom", "infoo", "rich_text_field", "{}"),),
+            template_suffix="furniture-product-page",
+        )
+        created = store.create_product(draft)
+        assert created.store_product_id
+        assert SKU("MF-1") in {p.sku for p in store.list_products()}
+
 
 class TestInMemoryStore(StoreContract):
     @pytest.fixture

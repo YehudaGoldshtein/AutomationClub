@@ -16,7 +16,9 @@ from typing import Iterable
 
 import httpx
 
+from inventory_sync.domain import VendorProductId, VendorProductSnapshot
 from inventory_sync.log import Logger, get
+from inventory_sync.segal_mapping import INGEST_CATEGORIES
 from inventory_sync.segal_source import (
     SegalProduct,
     SegalTab,
@@ -27,12 +29,38 @@ from inventory_sync.segal_source import (
 _STORE_API = "/wp-json/wc/store/v1/products"
 
 
+def _to_snapshot(p: SegalProduct) -> VendorProductSnapshot:
+    """SegalProduct -> VendorProductSnapshot (stock signal only; no tabs needed).
+
+    Keeps the domain invariant consistent: out of stock -> count 0 / unavailable;
+    in stock with a positive count -> exact count; in stock with an unknown/zero
+    count -> binary-available (count None).
+    """
+    if not p.in_stock:
+        stock_count = 0
+    elif p.stock_qty and p.stock_qty > 0:
+        stock_count = p.stock_qty
+    else:
+        stock_count = None
+    return VendorProductSnapshot(
+        vendor_product_id=VendorProductId(p.sku),
+        is_available=p.in_stock,
+        stock_count=stock_count,
+        name=p.name or None,
+        price=p.price,
+        image_url=p.image_urls[0] if p.image_urls else None,
+    )
+
+
 @dataclass
 class SegalBabyStoreApiAdapter:
     client: httpx.Client
     logger: Logger = field(default_factory=lambda: get("adapters.segal_baby"))
     base_url: str = "https://www.segalbaby.co.il"
     per_page: int = 100
+    category_ids: tuple[int, ...] = field(
+        default_factory=lambda: tuple(INGEST_CATEGORIES.values())
+    )
 
     def list_category_products(self, category_id: int) -> list[dict]:
         """Paginate the Store API for one category; return raw product dicts.
@@ -92,3 +120,24 @@ class SegalBabyStoreApiAdapter:
         """Yield products across categories (dedup is the caller's job)."""
         for cid in category_ids:
             yield from self.fetch_products(cid)
+
+    # --- SupplierSource (stock sync for existing products) ---
+
+    def fetch_snapshots(
+        self, ids: Iterable[VendorProductId]
+    ) -> dict[VendorProductId, VendorProductSnapshot]:
+        """Availability + exact quantity for the requested SKUs, from the Store API.
+
+        Lists the in-scope categories (no per-product tab fetch — stock only) and
+        returns snapshots just for the requested ids. A requested SKU not found in
+        Segal's catalog is omitted (the engine treats it as vendor-missing).
+        """
+        wanted = {str(i) for i in ids}
+        out: dict[VendorProductId, VendorProductSnapshot] = {}
+        for cid in self.category_ids:
+            for data in self.list_category_products(cid):
+                p = parse_api_product(data)
+                if p.sku in wanted and VendorProductId(p.sku) not in out:
+                    out[VendorProductId(p.sku)] = _to_snapshot(p)
+        self.logger.info("segal_snapshots_fetched", requested=len(wanted), returned=len(out))
+        return out

@@ -328,6 +328,29 @@ def cmd_segal_ingest(args, log: Logger, cfg: Config) -> int:
     return 1 if summary.errors else 0
 
 
+def cmd_segal_sync(args, log: Logger, cfg: Config) -> int:
+    """Sync stock (quantity + in/out of stock) for existing Segal products.
+
+    Reuses the sync engine + DefaultStockPolicy: exact vendor count -> SET_STOCK
+    (0 when out of stock). Never archives/unpublishes and never touches price.
+    """
+    from inventory_sync.segal_mapping import VENDOR as SEGAL_VENDOR
+
+    log.info("segal_sync_command_start", dry_run=args.dry_run)
+    supplier = _build_segal_adapter(log)
+    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=SEGAL_VENDOR)
+    store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
+
+    run = SyncEngine(store=store, supplier=supplier, policy=DefaultStockPolicy(), logger=log).run()
+
+    print(
+        f"segal-sync: items_checked={run.items_checked} "
+        f"changes_planned={len(run.changes_planned)} changes_applied={len(run.changes_applied)} "
+        f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} dry_run={args.dry_run}"
+    )
+    return 1 if run.errors else 0
+
+
 def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     """Activate approved draft products (draft → active) for one customer."""
     log = log.bind(customer_id=args.customer_id)
@@ -568,6 +591,13 @@ def main(argv: list[str] | None = None) -> int:
     seg.add_argument("--dry-run", action="store_true",
                      help="Fetch + report what would be created, but write nothing")
 
+    segsync = sub.add_parser(
+        "segal-sync",
+        help="Sync stock (quantity + in/out) for existing Segal products",
+    )
+    segsync.add_argument("--dry-run", action="store_true",
+                         help="Plan stock changes but don't write to the store")
+
     rec = sub.add_parser(
         "reconcile",
         help="Activate approved draft products (draft → active)",
@@ -591,6 +621,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_ingest(args, log, cfg)
     if command == "segal-ingest":
         return cmd_segal_ingest(args, log, cfg)
+    if command == "segal-sync":
+        return cmd_segal_sync(args, log, cfg)
     if command == "reconcile":
         return cmd_reconcile(args, log, cfg)
 

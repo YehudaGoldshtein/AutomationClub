@@ -1,0 +1,49 @@
+name: segal-sync
+
+# Keep existing Segal products' stock in sync (quantity + in/out of stock) from
+# the WooCommerce Store API. Never archives/unpublishes, never touches price.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Plan stock changes but write nothing'
+        type: boolean
+        default: true
+  schedule:
+    - cron: '0 */3 * * *'   # every 3 hours (PRD §7: 3-6h)
+
+jobs:
+  segal-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Segal stock sync
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: |
+          # Scheduled runs are live; manual dispatch honors the dry_run toggle.
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            python -m inventory_sync segal-sync --dry-run
+          else
+            python -m inventory_sync segal-sync
+          fi

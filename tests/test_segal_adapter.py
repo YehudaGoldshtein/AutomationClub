@@ -10,6 +10,7 @@ from __future__ import annotations
 import httpx
 
 from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter
+from inventory_sync.domain import VendorProductId
 from inventory_sync.log import get
 from inventory_sync.segal_source import SegalProduct
 
@@ -62,10 +63,10 @@ def _handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404)
 
 
-def _adapter(handler=_handler, per_page=2):
+def _adapter(handler=_handler, per_page=2, category_ids=(37,)):
     client = httpx.Client(transport=httpx.MockTransport(handler))
     return SegalBabyStoreApiAdapter(client=client, base_url=BASE, per_page=per_page,
-                                    logger=get("test"))
+                                    category_ids=category_ids, logger=get("test"))
 
 
 class TestListCategoryProducts:
@@ -102,3 +103,44 @@ class TestFetchProducts:
         assert {p.sku for p in products} == {"A-1", "A-2", "A-3"}
         assert products[0].stock_qty == 7
         assert [t.label for t in products[0].tabs] == ["מידע כללי", "פרטים טכניים"]
+
+
+class TestFetchSnapshots:
+    def test_returns_snapshots_for_requested_skus_only(self):
+        snaps = _adapter().fetch_snapshots([VendorProductId("A-1"), VendorProductId("A-3")])
+        assert set(snaps) == {"A-1", "A-3"}
+        assert snaps[VendorProductId("A-1")].is_available is True
+        assert snaps[VendorProductId("A-1")].stock_count == 7  # exact count → drives SET_STOCK
+
+    def test_sku_not_in_catalog_is_absent(self):
+        snaps = _adapter().fetch_snapshots([VendorProductId("GHOST")])
+        assert snaps == {}
+
+    def test_out_of_stock_snapshot_is_zero_and_unavailable(self):
+        oos = _prod("OOS-1", "oos")
+        oos["is_in_stock"] = False
+        oos["add_to_cart"] = {"minimum": 1, "maximum": 1}
+
+        def handler(request):
+            if request.url.path == "/wp-json/wc/store/v1/products":
+                cat, page = request.url.params.get("category"), int(request.url.params.get("page", "1"))
+                return httpx.Response(200, json=[oos] if (cat == "37" and page == 1) else [])
+            return httpx.Response(404)
+
+        snap = _adapter(handler).fetch_snapshots([VendorProductId("OOS-1")])[VendorProductId("OOS-1")]
+        assert snap.is_available is False
+        assert snap.stock_count == 0
+
+    def test_does_not_fetch_tabs(self):
+        # stock sync must not hit product pages — only the Store API list.
+        calls = []
+
+        def handler(request):
+            calls.append(request.url.path)
+            if request.url.path == "/wp-json/wc/store/v1/products":
+                cat, page = request.url.params.get("category"), int(request.url.params.get("page", "1"))
+                return httpx.Response(200, json=PAGES.get((cat, page), []))
+            return httpx.Response(404)
+
+        _adapter(handler).fetch_snapshots([VendorProductId("A-1")])
+        assert not any(p.startswith("/product/") for p in calls)

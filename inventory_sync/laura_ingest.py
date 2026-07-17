@@ -16,6 +16,7 @@ from decimal import Decimal, InvalidOperation
 
 import openpyxl
 
+from inventory_sync.domain import SKU
 from inventory_sync.laura_mapping import (
     CATEGORY_COLLECTION_ID,
     subcategory_collection,
@@ -30,8 +31,10 @@ class IngestSummary:
     created: int = 0
     skipped_existing: int = 0
     flagged_review: int = 0
-    errors: int = 0            # products that failed to create (isolated, batch continues)
+    errors: int = 0            # products that failed to create/archive (isolated, batch continues)
     would_create: int = 0      # dry-run: products that would be created
+    archived: int = 0          # discontinued ("אזל") products taken down from the site
+    would_archive: int = 0     # dry-run: products that would be taken down
     dry_run: bool = False
     created_skus: list[str] = field(default_factory=list)
 
@@ -81,6 +84,8 @@ def parse_laura_xlsx(data: bytes) -> list[LauraRow]:
             col[_EXACT_HEADERS[hs]] = i
         elif "קישור" in hs or "link" in hs.lower():
             col["image_url"] = i
+        elif "זמין" in hs:  # "מלאי זמין" (real file sometimes reads "מלרי זמין")
+            col["availability"] = i
 
     def cell(row, field_name):
         i = col.get(field_name)
@@ -101,6 +106,7 @@ def parse_laura_xlsx(data: bytes) -> list[LauraRow]:
             text=_s(cell(row, "text")),
             image_url=_s(cell(row, "image_url")),
             recommended_price=_dec(cell(row, "recommended_price")),
+            availability=_s(cell(row, "availability")),
         ))
     return out
 
@@ -131,13 +137,38 @@ def _create_and_record(store, product_store, customer_id, group, draft, sub_name
 
 
 def ingest_products(rows, store, product_store, customer_id: str, logger, dry_run: bool = False) -> IngestSummary:
-    """Group rows, skip existing SKUs, create new products as drafts, record pending."""
+    """Group rows, take down discontinued items, create new products as drafts.
+
+    `מלאי זמין` = "אזל" (discontinued) rows are never uploaded, and are archived
+    if already on the site. Note: unpublish acts at product level, so a product
+    whose SKU is discontinued is archived as a whole.
+    """
     summary = IngestSummary(dry_run=dry_run)
     existing = store.list_products()
-    existing_skus = {str(p.sku) for p in existing}
+    existing_by_sku = {str(p.sku): p for p in existing}
+    existing_skus = set(existing_by_sku)
     existing_titles = {p.title for p in existing if p.title}
 
-    for group in group_products(rows):
+    # --- Takedown pass: discontinued ("אזל") items removed from the site (archive) ---
+    for sku in sorted({r.sku for r in rows if r.discontinued}):
+        prod = existing_by_sku.get(sku)
+        if prod is None or not prod.published:
+            continue  # not on site, or already down — nothing to take down
+        if dry_run:
+            summary.would_archive += 1
+            logger.info("ingest_would_archive", sku=sku)
+            continue
+        try:
+            store.unpublish(SKU(sku))
+            summary.archived += 1
+            logger.info("ingest_archived_discontinued", sku=sku)
+        except Exception as e:
+            summary.errors += 1
+            logger.error("ingest_archive_failed", sku=sku, error=str(e)[:200])
+
+    # --- Create pass: only active (non-discontinued) rows are eligible to upload ---
+    active_rows = [r for r in rows if not r.discontinued]
+    for group in group_products(active_rows):
         group_skus = {str(v.sku) for v in group.variants}
 
         if group_skus & existing_skus:
@@ -193,5 +224,6 @@ def ingest_products(rows, store, product_store, customer_id: str, logger, dry_ru
 
     logger.info("ingest_summary", customer_id=customer_id, created=summary.created,
                 skipped_existing=summary.skipped_existing, flagged_review=summary.flagged_review,
-                errors=summary.errors, would_create=summary.would_create, dry_run=dry_run)
+                errors=summary.errors, would_create=summary.would_create,
+                archived=summary.archived, would_archive=summary.would_archive, dry_run=dry_run)
     return summary

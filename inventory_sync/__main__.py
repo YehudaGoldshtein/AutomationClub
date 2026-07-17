@@ -305,6 +305,7 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
     print(
         f"ingest: parsed={len(rows)} created={summary.created} "
         f"skipped_existing={summary.skipped_existing} flagged_review={summary.flagged_review} "
+        f"archived={summary.archived} would_archive={summary.would_archive} "
         f"errors={summary.errors} would_create={summary.would_create} dry_run={summary.dry_run}"
     )
     return 0

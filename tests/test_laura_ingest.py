@@ -75,6 +75,19 @@ class TestParseXlsx:
         assert row.text is None
         assert row.image_url is None
         assert row.recommended_price is None
+        assert row.availability is None
+        assert row.discontinued is False
+
+    def test_captures_availability_and_discontinued_flag(self):
+        data = _xlsx(HEADERS, [
+            ["1000-1", None, "פריט פעיל NB", "במלאי", None, "בגד גוף", None, 10, None, None],
+            ["1000-2", None, "פריט אזל NB", "אזל לא יחזור", None, "בגד גוף", None, 10, None, None],
+        ])
+        by_sku = {r.sku: r for r in parse_laura_xlsx(data)}
+        assert by_sku["1000-1"].availability == "במלאי"
+        assert by_sku["1000-1"].discontinued is False
+        assert by_sku["1000-2"].availability == "אזל לא יחזור"
+        assert by_sku["1000-2"].discontinued is True
 
 
 # --- ingest_products ---
@@ -88,11 +101,12 @@ def _stores(existing: list[Product] | None = None):
 
 
 def _row(sku, desc="בגד גוף לבן NB", family="בגד גוף",
-         text="כותנה", image="http://img", price="199") -> LauraRow:
+         text="כותנה", image="http://img", price="199", availability=None) -> LauraRow:
     return LauraRow(
         sku=sku, description=desc, family=family,
         barcode="b" + sku, text=text, image_url=image,
         recommended_price=Decimal(price) if price is not None else None,
+        availability=availability,
     )
 
 
@@ -202,6 +216,53 @@ class TestIngestErrorIsolation:
         summary = ingest_products([_row("N-1", image="http://bad/x.jpg")], store, ps, C, LOG)
         assert summary.created == 1                       # salvaged without the image
         assert ps.get(C, "N-1").needs_review is True
+
+
+class TestIngestDiscontinued:
+    def test_discontinued_new_sku_not_uploaded(self):
+        store, ps = _stores()
+        summary = ingest_products([_row("N-1", availability="אזל לא יחזור")], store, ps, C, LOG)
+        assert summary.created == 0
+        assert SKU("N-1") not in {p.sku for p in store.list_products()}
+        assert ps.list_pending(C) == []
+
+    def test_discontinued_existing_sku_is_archived(self):
+        existing = [Product(SKU("N-1"), VendorProductId("N-1"), StockLevel(1),
+                            published=True, title="בגד גוף לבן")]
+        store, ps = _stores(existing)
+        summary = ingest_products([_row("N-1", availability="אזל לא יחזור")], store, ps, C, LOG)
+        assert summary.archived == 1
+        assert store.get(SKU("N-1")).published is False
+
+    def test_any_azal_value_takes_down(self):
+        existing = [Product(SKU("N-1"), VendorProductId("N-1"), StockLevel(1),
+                            published=True, title="בגד גוף לבן")]
+        store, ps = _stores(existing)
+        summary = ingest_products([_row("N-1", availability="אזל")], store, ps, C, LOG)
+        assert summary.archived == 1
+        assert store.get(SKU("N-1")).published is False
+
+    def test_already_archived_is_not_rearchived(self):
+        existing = [Product(SKU("N-1"), VendorProductId("N-1"), StockLevel(0),
+                            published=False, title="בגד גוף לבן")]
+        store, ps = _stores(existing)
+        summary = ingest_products([_row("N-1", availability="אזל")], store, ps, C, LOG)
+        assert summary.archived == 0
+
+    def test_active_row_still_created(self):
+        store, ps = _stores()
+        summary = ingest_products([_row("N-1", availability="במלאי")], store, ps, C, LOG)
+        assert summary.created == 1
+        assert SKU("N-1") in {p.sku for p in store.list_products()}
+
+    def test_dry_run_reports_would_archive_without_writing(self):
+        existing = [Product(SKU("N-1"), VendorProductId("N-1"), StockLevel(1),
+                            published=True, title="בגד גוף לבן")]
+        store, ps = _stores(existing)
+        summary = ingest_products([_row("N-1", availability="אזל")], store, ps, C, LOG, dry_run=True)
+        assert summary.would_archive == 1
+        assert summary.archived == 0
+        assert store.get(SKU("N-1")).published is True  # untouched
 
 
 class TestIngestDryRun:

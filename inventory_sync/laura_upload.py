@@ -29,6 +29,13 @@ class LauraRow:
     text: str | None = None               # טקסט
     image_url: str | None = None          # link -קישור לתמונה
     recommended_price: Decimal | None = None  # מחיר מומלץ
+    availability: str | None = None       # מלאי זמין (e.g. "במלאי" / "אזל לא יחזור")
+
+    @property
+    def discontinued(self) -> bool:
+        """True when `מלאי זמין` marks the item as sold-out ("אזל"): don't upload,
+        and take it down if it's already on the site."""
+        return bool(self.availability) and "אזל" in self.availability
 
 
 @dataclass(frozen=True)

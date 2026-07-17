@@ -100,16 +100,31 @@ class VendorProductSnapshot:
 @dataclass(frozen=True)
 class VariantSpec:
     """One variant to create under a new product. `option_value` is the size
-    ("מידה"); None means a single-variant product with no size option."""
+    ("מידה"); None means a single-variant product with no size option.
+
+    `inventory_quantity` is the initial stock to set on create. None = don't
+    manage inventory (Laura: stock arrives later from the scrape). An int (incl.
+    0) = enable Shopify inventory tracking and set this quantity (Segal: the
+    Store API gives real stock at ingest time)."""
     sku: SKU
     option_value: str | None = None
     barcode: str | None = None
     price: Decimal | None = None
+    inventory_quantity: int | None = None
+
+
+@dataclass(frozen=True)
+class Metafield:
+    """A store metafield to write on product create (Segal tab content, SEO, etc.)."""
+    namespace: str
+    key: str
+    type: str
+    value: str
 
 
 @dataclass(frozen=True)
 class ProductDraft:
-    """A net-new product to create in the store (Laura upload). Created as draft."""
+    """A net-new product to create in the store (Laura/Segal upload). Created as draft."""
     title: str
     body_html: str
     vendor: str
@@ -119,6 +134,8 @@ class ProductDraft:
     option_name: str = "מידה"
     image_urls: tuple[str, ...] = ()
     status: str = "draft"
+    metafields: tuple[Metafield, ...] = ()
+    template_suffix: str | None = None
 
 
 @dataclass(frozen=True)

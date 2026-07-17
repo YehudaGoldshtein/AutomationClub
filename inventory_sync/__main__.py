@@ -33,7 +33,9 @@ from inventory_sync.customers import (
     RouteSpec,
 )
 from inventory_sync.engine import SyncEngine
+from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
+from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.log import Logger, configure
 from inventory_sync.reconcile import reconcile_approved_drafts, reconcile_rejected_drafts
 from inventory_sync.notifications import (
@@ -308,11 +310,30 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
     return 0
 
 
+def cmd_segal_ingest(args, log: Logger, cfg: Config) -> int:
+    """Ingest Segal Baby products from the WC Store API: create net-new drafts."""
+    log = log.bind(customer_id=args.customer_id)
+    log.info("segal_ingest_command_start", dry_run=args.dry_run)
+
+    source = _build_segal_adapter(log)
+    # No vendor filter: dedup must catch an existing SKU regardless of its vendor tag.
+    store = _build_shopify_adapter(cfg, log, vendor_filter=None)
+    product_store = _build_store_product_store(cfg, log)
+    summary = ingest_segal(source, store, product_store, args.customer_id, log, dry_run=args.dry_run)
+
+    print(
+        f"segal-ingest: created={summary.created} skipped_existing={summary.skipped_existing} "
+        f"errors={summary.errors} would_create={summary.would_create} dry_run={summary.dry_run}"
+    )
+    return 1 if summary.errors else 0
+
+
 def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     """Activate approved draft products (draft → active) for one customer."""
     log = log.bind(customer_id=args.customer_id)
     log.info("reconcile_command_start")
-    store = _build_shopify_adapter(cfg, log)
+    # No vendor filter: activate/delete drafts of any vendor (Laura + Segal).
+    store = _build_shopify_adapter(cfg, log, vendor_filter=None)
     product_store = _build_store_product_store(cfg, log)
     act = reconcile_approved_drafts(store, product_store, args.customer_id, log)
     rej = reconcile_rejected_drafts(store, product_store, args.customer_id, log)
@@ -321,14 +342,31 @@ def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     return 1 if (act.errors or rej.errors) else 0
 
 
-def _build_shopify_adapter(cfg: Config, log: Logger) -> ShopifyAdapter:
-    """Legacy single-customer Shopify adapter (used by archive-audit command)."""
+_VENDOR_FILTER_DEFAULT = object()
+
+
+def _build_shopify_adapter(cfg: Config, log: Logger, vendor_filter=_VENDOR_FILTER_DEFAULT) -> ShopifyAdapter:
+    """Legacy single-customer Shopify adapter (archive-audit, ingest, reconcile).
+
+    vendor_filter defaults to the configured (Laura) store tag; pass None to
+    list across all vendors (Segal ingest dedup, cross-vendor reconcile).
+    """
     client = httpx.Client(
         base_url=cfg.shopify.admin_api_base_url,
         headers={"X-Shopify-Access-Token": cfg.shopify.admin_api_token},
         timeout=30.0,
     )
-    return ShopifyAdapter(client=client, logger=log, vendor_filter=cfg.vendor.store_tag)
+    vf = cfg.vendor.store_tag if vendor_filter is _VENDOR_FILTER_DEFAULT else vendor_filter
+    return ShopifyAdapter(client=client, logger=log, vendor_filter=vf)
+
+
+def _build_segal_adapter(log: Logger) -> SegalBabyStoreApiAdapter:
+    client = httpx.Client(
+        timeout=30.0,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; InventorySyncBot/0.1)"},
+        follow_redirects=True,
+    )
+    return SegalBabyStoreApiAdapter(client=client, logger=log)
 
 
 def _resolve_shopify_token(customer_id: str) -> str:
@@ -522,6 +560,14 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--dry-run", action="store_true",
                      help="Parse + group + report what would be created, but write nothing")
 
+    seg = sub.add_parser(
+        "segal-ingest",
+        help="Ingest Segal Baby products from the WC Store API: create net-new drafts",
+    )
+    seg.add_argument("--customer-id", required=True, help="Tenant to ingest into")
+    seg.add_argument("--dry-run", action="store_true",
+                     help="Fetch + report what would be created, but write nothing")
+
     rec = sub.add_parser(
         "reconcile",
         help="Activate approved draft products (draft → active)",
@@ -543,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_sync(args, log, cfg)
     if command == "ingest":
         return cmd_ingest(args, log, cfg)
+    if command == "segal-ingest":
+        return cmd_segal_ingest(args, log, cfg)
     if command == "reconcile":
         return cmd_reconcile(args, log, cfg)
 

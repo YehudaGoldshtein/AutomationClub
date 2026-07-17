@@ -6,6 +6,11 @@ name: segal-sync
 on:
   workflow_dispatch:
     inputs:
+      customer_id:
+        description: 'Tenant to tag Axiom events with'
+        type: string
+        required: true
+        default: 'maxbaby'
       dry_run:
         description: 'Plan stock changes but write nothing'
         type: boolean
@@ -41,9 +46,11 @@ jobs:
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
-          # Scheduled runs are live; manual dispatch honors the dry_run toggle.
+          # Scheduled runs are live (no inputs); manual dispatch honors dry_run.
+          CUSTOMER_ID="${{ inputs.customer_id }}"
+          CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then
-            python -m inventory_sync segal-sync --dry-run
+            python -m inventory_sync segal-sync --customer-id "$CUSTOMER_ID" --dry-run
           else
-            python -m inventory_sync segal-sync
+            python -m inventory_sync segal-sync --customer-id "$CUSTOMER_ID"
           fi

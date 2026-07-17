@@ -336,6 +336,7 @@ def cmd_segal_sync(args, log: Logger, cfg: Config) -> int:
     """
     from inventory_sync.segal_mapping import VENDOR as SEGAL_VENDOR
 
+    log = log.bind(customer_id=args.customer_id)  # uniform customer_id-bound Axiom events
     log.info("segal_sync_command_start", dry_run=args.dry_run)
     supplier = _build_segal_adapter(log)
     raw_store = _build_shopify_adapter(cfg, log, vendor_filter=SEGAL_VENDOR)
@@ -595,6 +596,8 @@ def main(argv: list[str] | None = None) -> int:
         "segal-sync",
         help="Sync stock (quantity + in/out) for existing Segal products",
     )
+    segsync.add_argument("--customer-id", default="maxbaby",
+                         help="Tenant to tag Axiom events with (default: maxbaby)")
     segsync.add_argument("--dry-run", action="store_true",
                          help="Plan stock changes but don't write to the store")
 

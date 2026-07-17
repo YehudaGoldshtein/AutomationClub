@@ -23,3 +23,6 @@ venv/
 .vscode/
 .idea/
 .DS_Store
+
+# Runtime cleanup / ingest artifacts
+draft_ids.json

@@ -15,6 +15,7 @@ location_id (via /locations.json).
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Iterator
 
@@ -36,6 +37,14 @@ class ShopifyError(Exception):
     pass
 
 
+def _retry_after_seconds(resp) -> float:
+    """Seconds to wait on a 429, from the Retry-After header. Defaults to 1s, capped at 5s."""
+    try:
+        return min(5.0, max(0.0, float(resp.headers.get("Retry-After", "1"))))
+    except (TypeError, ValueError):
+        return 1.0
+
+
 @dataclass(frozen=True)
 class _VariantRef:
     inventory_item_id: int
@@ -49,6 +58,7 @@ class ShopifyAdapter:
     logger: Logger = field(default_factory=lambda: get("adapters.shopify"))
     vendor_filter: str | None = None
     page_size: int = 250
+    max_rate_limit_retries: int = 5
 
     _variant_by_sku: dict[SKU, _VariantRef] = field(default_factory=dict, init=False, repr=False)
     _location_id: int | None = field(default=None, init=False, repr=False)
@@ -100,7 +110,7 @@ class ShopifyAdapter:
         location_id = self._ensure_location()
         log = self.logger.bind(sku=sku, inventory_item_id=ref.inventory_item_id)
 
-        resp = self._set_level(ref.inventory_item_id, location_id, stock.value)
+        resp = self._set_level(ref.inventory_item_id, location_id, stock.value, log)
         if resp.status_code in (200, 201):
             log.info("stock_updated", available=stock.value)
             return
@@ -110,7 +120,7 @@ class ShopifyAdapter:
         if resp.status_code == 422 and "tracking" in resp.text.lower():
             log.warning("inventory_tracking_disabled_enabling", body=resp.text[:200])
             self._enable_tracking(ref.inventory_item_id)
-            resp = self._set_level(ref.inventory_item_id, location_id, stock.value)
+            resp = self._set_level(ref.inventory_item_id, location_id, stock.value, log)
             if resp.status_code in (200, 201):
                 log.info("stock_updated", available=stock.value, tracking_enabled=True)
                 return
@@ -120,15 +130,23 @@ class ShopifyAdapter:
             f"inventory_levels/set.json {resp.status_code}: {resp.text[:200]}"
         )
 
-    def _set_level(self, inventory_item_id: int, location_id: int, available: int):
-        return self.client.post(
-            "/inventory_levels/set.json",
-            json={
-                "location_id": location_id,
-                "inventory_item_id": inventory_item_id,
-                "available": available,
-            },
-        )
+    def _set_level(self, inventory_item_id: int, location_id: int, available: int, log=None):
+        """POST inventory_levels/set, retrying on 429 (honoring Retry-After).
+
+        Bulk syncs (e.g. Segal's first run) can exceed Shopify's ~2 req/s; a
+        reactive backoff paces us instead of failing the whole run on a 429.
+        """
+        body = {"location_id": location_id, "inventory_item_id": inventory_item_id, "available": available}
+        resp = self.client.post("/inventory_levels/set.json", json=body)
+        attempt = 0
+        while resp.status_code == 429 and attempt < self.max_rate_limit_retries:
+            delay = _retry_after_seconds(resp)
+            if log is not None:
+                log.warning("rate_limited_retrying", attempt=attempt + 1, delay=delay)
+            time.sleep(delay)
+            resp = self.client.post("/inventory_levels/set.json", json=body)
+            attempt += 1
+        return resp
 
     def _enable_tracking(self, inventory_item_id: int) -> None:
         resp = self.client.put(

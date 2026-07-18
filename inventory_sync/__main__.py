@@ -355,7 +355,11 @@ def cmd_segal_sync(args, log: Logger, cfg: Config) -> int:
         f"changes_planned={len(run.changes_planned)} changes_applied={len(run.changes_applied)} "
         f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} dry_run={args.dry_run}"
     )
-    return 1 if run.errors else 0
+    # Fail only on a fatal/aborted run; isolated per-item errors (e.g. a transient
+    # 429) are logged but don't fail the job.
+    if not run.aborted and run.errors:
+        log.warning("segal_sync_completed_with_isolated_errors", errors=len(run.errors))
+    return 1 if run.aborted else 0
 
 
 def cmd_reconcile(args, log: Logger, cfg: Config) -> int:

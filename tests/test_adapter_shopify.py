@@ -30,6 +30,7 @@ class _FakeShopifyApi:
         self.location_id = location_id
         self.inventory: dict[int, int] = {}
         self.tracked: dict[int, bool] = {}  # inventory_item_id -> tracking enabled (default True)
+        self.rate_limit_set: int = 0  # number of times inventory set should 429 before succeeding
         for p in products:
             for v in p.get("variants", []):
                 self.inventory[v["inventory_item_id"]] = v.get("inventory_quantity", 0)
@@ -65,6 +66,11 @@ class _FakeShopifyApi:
             body = request.content.decode() if request.content else "{}"
             import json as _json
             data = _json.loads(body)
+            if self.rate_limit_set > 0:
+                self.rate_limit_set -= 1
+                return httpx.Response(429, headers={"Retry-After": "0"}, json={
+                    "errors": "Exceeded 2 calls per second for api client."
+                })
             if not self.tracked.get(data["inventory_item_id"], True):
                 return httpx.Response(422, json={
                     "errors": ["Inventory item does not have inventory tracking enabled"]
@@ -305,6 +311,19 @@ class TestUpdateStock:
 
         with pytest.raises(ShopifyError, match="no variant cached"):
             adapter.update_stock(SKU("NOT-CACHED"), StockLevel(1))
+
+    def test_retries_on_rate_limit_then_succeeds(self):
+        """429 'exceeded calls per second' → back off (Retry-After) and retry the set."""
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "X", 0)])])
+        fake.rate_limit_set = 2  # first two set calls 429, third succeeds
+        adapter = _make_adapter(fake)
+        adapter.list_products()
+
+        adapter.update_stock(SKU("X"), StockLevel(12))  # must not raise
+
+        assert fake.inventory[100] == 12
+        sets = [p for (m, p) in fake.request_log if p.endswith("/inventory_levels/set.json")]
+        assert len(sets) == 3  # 2 rate-limited + 1 success
 
     def test_self_heals_when_tracking_disabled(self):
         """422 'tracking not enabled' → enable tracking on the item, then retry set."""

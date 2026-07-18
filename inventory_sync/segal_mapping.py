@@ -11,6 +11,7 @@ import json
 
 from bs4 import BeautifulSoup
 
+from inventory_sync import store_content
 from inventory_sync.domain import SKU, Metafield, ProductDraft, VariantSpec
 from inventory_sync.log import Logger, get
 from inventory_sync.segal_source import SegalProduct, SegalTab
@@ -44,19 +45,6 @@ _BEDS_LIKE = {"beds", "beds-and-toddler", "xlbabycrib"}
 
 RICH_TEXT = "rich_text_field"
 WARRANTY_PREFIX = "אחריות רחבה 5 שנים"
-# Max Baby fixed delivery/returns text (owner-supplied). Handles furniture explicitly.
-DELIVERY_BOILERPLATE_LINES: tuple[str, ...] = (
-    "משלוח עד הבית",
-    "✓ שליח עד הבית חינם בהזמנה מעל 499 ₪ (לא כולל ריהוט)",
-    "✓ מתחת ל-499 ₪ עלות המשלוח הינה 29 ₪",
-    "✓ אספקת ההזמנה עד 7 ימי עסקים (לא כולל ריהוט)",
-    "✓ אספקת הזמנה של ריהוט עד 14 ימי עסקים",
-    "החלפות והחזרות",
-    "✓ החלפת מוצר שנרכש באתר, ניתן לבצע עד 30 יום מיום קבלת המשלוח",
-    "✓ החזרת פריטים תוך 14 ימים מיום קבלת המשלוח",
-    "✓ החלפות או החזרות יתבצעו דרך יצירת קשר עם שירות הלקוחות שלנו במייל maxbabyonline@gmail.com ובהצגת חשבונית, שם ינחו אתכם על התהליך.",
-    "✗ אין אפשרות להחלפות/החזרות בסניף המותג.",
-)
 
 
 def matched_category(product: SegalProduct) -> str | None:
@@ -161,8 +149,7 @@ def to_product_draft(product: SegalProduct, logger: Logger | None = None) -> Pro
     title = decode_entities(product.name)
 
     metafields: list[Metafield] = list(tabs_to_metafields(product.tabs, log))
-    metafields.append(Metafield("custom", "delivery", RICH_TEXT,
-                                _rich_text_doc(list(DELIVERY_BOILERPLATE_LINES))))
+    metafields.append(store_content.delivery_metafield())
     metafields.append(Metafield("global", "title_tag", "single_line_text_field", title))
     metafields.append(Metafield("global", "description_tag", "multi_line_text_field",
                                 _plain_text(product.description_html)))

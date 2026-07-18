@@ -116,6 +116,12 @@ class TestToProductDraft:
         d = to_product_draft(self._group())
         assert all(v.track_inventory for v in d.variants)
 
+    def test_carries_shared_delivery_metafield(self):
+        # Fixed Max Baby delivery/returns text on every product (owner: "to all").
+        d = to_product_draft(self._group())
+        keys = {(m.namespace, m.key) for m in d.metafields}
+        assert ("custom", "delivery") in keys
+
 
 class TestPipeline:
     """group_products → to_product_draft carries text + price end to end."""

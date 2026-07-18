@@ -5,6 +5,7 @@ collection lookup, and the field mapping. See tests/test_laura_mapping.py.
 """
 from __future__ import annotations
 
+from inventory_sync import store_content
 from inventory_sync.domain import SKU, ProductDraft, VariantSpec
 from inventory_sync.laura_upload import ProductGroup
 
@@ -177,4 +178,6 @@ def to_product_draft(group: ProductGroup) -> ProductDraft:
         option_name=OPTION_NAME,
         image_urls=group.image_urls,
         status="draft",
+        # Fixed Max Baby delivery/returns text on every product (owner: "to all").
+        metafields=(store_content.delivery_metafield(),),
     )

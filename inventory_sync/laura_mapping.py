@@ -178,6 +178,6 @@ def to_product_draft(group: ProductGroup) -> ProductDraft:
         option_name=OPTION_NAME,
         image_urls=group.image_urls,
         status="draft",
-        # Fixed Max Baby delivery/returns text on every product (owner: "to all").
-        metafields=(store_content.delivery_metafield(),),
+        # Fixed textile delivery/returns text (Laura); furniture has its own.
+        metafields=(store_content.textile_delivery_metafield(),),
     )

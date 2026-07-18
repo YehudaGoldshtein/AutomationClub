@@ -149,7 +149,7 @@ def to_product_draft(product: SegalProduct, logger: Logger | None = None) -> Pro
     title = decode_entities(product.name)
 
     metafields: list[Metafield] = list(tabs_to_metafields(product.tabs, log))
-    metafields.append(store_content.delivery_metafield())
+    metafields.append(store_content.furniture_delivery_metafield())
     metafields.append(Metafield("global", "title_tag", "single_line_text_field", title))
     metafields.append(Metafield("global", "description_tag", "multi_line_text_field",
                                 _plain_text(product.description_html)))

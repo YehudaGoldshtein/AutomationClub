@@ -111,6 +111,7 @@ class VariantSpec:
     barcode: str | None = None
     price: Decimal | None = None
     inventory_quantity: int | None = None
+    track_inventory: bool = False  # enable Shopify inventory tracking even without an initial qty
 
 
 @dataclass(frozen=True)
@@ -170,6 +171,7 @@ class SyncRun:
     changes_applied: list[StockChange] = field(default_factory=list)
     errors: list[SyncError] = field(default_factory=list)
     vendor_missing: list[SKU] = field(default_factory=list)  # vendor returned no snapshot for these SKUs
+    aborted: bool = False  # True only for fatal runs (store/supplier unreachable), not per-item errors
 
     def finish(self) -> None:
         self.finished_at = datetime.now(timezone.utc)

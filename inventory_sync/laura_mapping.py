@@ -161,6 +161,9 @@ def to_product_draft(group: ProductGroup) -> ProductDraft:
             option_value=v.size,
             barcode=v.barcode,
             price=v.price,
+            # Create tracked (stock 0) so the hourly scrape can write real stock —
+            # an untracked variant 422s on inventory_levels/set.
+            track_inventory=True,
         )
         for v in group.variants
     )

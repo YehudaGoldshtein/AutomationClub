@@ -150,6 +150,7 @@ class TestPartialFailures:
 
         assert any(e.sku == SKU("A") for e in run.errors)
         assert store.get(SKU("B")).stock == StockLevel(20)
+        assert run.aborted is False  # a single item failing must not abort the run
 
 
 class TestCatastrophicFailures:
@@ -170,6 +171,7 @@ class TestCatastrophicFailures:
         assert run.changes_applied == []
         assert store.get(SKU("A")).stock == StockLevel(3)
         assert run.finished_at is not None
+        assert run.aborted is True  # supplier unreachable = fatal
 
     def test_store_unreachable_aborts_run(self, log: Logger):
         class BrokenStore:
@@ -189,6 +191,7 @@ class TestCatastrophicFailures:
         assert len(run.errors) == 1
         assert run.changes_applied == []
         assert run.finished_at is not None
+        assert run.aborted is True  # store unreachable = fatal
 
 
 class TestLogging:

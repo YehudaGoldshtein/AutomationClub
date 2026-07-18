@@ -134,6 +134,7 @@ class SyncEngine:
             raise ValueError(f"unknown change kind: {change.kind}")
 
     def _finish(self, run: SyncRun, log: Logger, aborted: bool, reason: str = "") -> SyncRun:
+        run.aborted = aborted
         run.finish()
         event = "sync_aborted" if aborted else "sync_complete"
         log.info(

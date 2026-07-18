@@ -237,6 +237,7 @@ def _abort_empty_run(
 ) -> SyncRun:
     from inventory_sync.domain import SyncError
     run = SyncRun()
+    run.aborted = True
     run.errors.append(SyncError(message=message))
     run.finish()
     try:

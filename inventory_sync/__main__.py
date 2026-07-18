@@ -144,8 +144,13 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
               f"  vendor_missing={len(run.vendor_missing)}"
               f"  duration={run.duration_seconds:.1f}s"
               f"  dry_run={args.dry_run}")
-        if run.errors:
+        # A single un-appliable change (e.g. one untracked SKU) must not fail the
+        # whole job — only a fatal/aborted run (store or supplier unreachable) does.
+        if run.aborted:
             worst_exit = 1
+        elif run.errors:
+            log.warning("sync_completed_with_isolated_errors",
+                        customer_id=customer.id, errors=len(run.errors))
 
         # Activate approved drafts + delete ignored ones since the last run.
         if not args.dry_run:

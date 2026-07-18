@@ -100,20 +100,45 @@ class ShopifyAdapter:
         location_id = self._ensure_location()
         log = self.logger.bind(sku=sku, inventory_item_id=ref.inventory_item_id)
 
-        resp = self.client.post(
+        resp = self._set_level(ref.inventory_item_id, location_id, stock.value)
+        if resp.status_code in (200, 201):
+            log.info("stock_updated", available=stock.value)
+            return
+
+        # Self-heal: the variant has inventory tracking disabled, so set 422s.
+        # Enable tracking on the inventory item, then retry once.
+        if resp.status_code == 422 and "tracking" in resp.text.lower():
+            log.warning("inventory_tracking_disabled_enabling", body=resp.text[:200])
+            self._enable_tracking(ref.inventory_item_id)
+            resp = self._set_level(ref.inventory_item_id, location_id, stock.value)
+            if resp.status_code in (200, 201):
+                log.info("stock_updated", available=stock.value, tracking_enabled=True)
+                return
+
+        log.error("inventory_set_failed", status=resp.status_code, body=resp.text[:200])
+        raise ShopifyError(
+            f"inventory_levels/set.json {resp.status_code}: {resp.text[:200]}"
+        )
+
+    def _set_level(self, inventory_item_id: int, location_id: int, available: int):
+        return self.client.post(
             "/inventory_levels/set.json",
             json={
                 "location_id": location_id,
-                "inventory_item_id": ref.inventory_item_id,
-                "available": stock.value,
+                "inventory_item_id": inventory_item_id,
+                "available": available,
             },
         )
+
+    def _enable_tracking(self, inventory_item_id: int) -> None:
+        resp = self.client.put(
+            f"/inventory_items/{inventory_item_id}.json",
+            json={"inventory_item": {"id": inventory_item_id, "tracked": True}},
+        )
         if resp.status_code not in (200, 201):
-            log.error("inventory_set_failed", status=resp.status_code, body=resp.text[:200])
             raise ShopifyError(
-                f"inventory_levels/set.json {resp.status_code}: {resp.text[:200]}"
+                f"inventory_items/{inventory_item_id}.json {resp.status_code}: {resp.text[:200]}"
             )
-        log.info("stock_updated", available=stock.value)
 
     def unpublish(self, sku: SKU) -> None:
         self._set_product_status(sku, "archived")
@@ -134,7 +159,7 @@ class ShopifyAdapter:
                 vp["barcode"] = v.barcode
             if v.price is not None:
                 vp["price"] = str(v.price)
-            if v.inventory_quantity is not None:
+            if v.inventory_quantity is not None or v.track_inventory:
                 # Track inventory so a follow-up update_stock can set the level.
                 vp["inventory_management"] = "shopify"
             variants_payload.append(vp)

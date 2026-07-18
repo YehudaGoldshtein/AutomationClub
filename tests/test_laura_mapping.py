@@ -111,6 +111,11 @@ class TestToProductDraft:
         assert by_sku[SKU("A-1")].price == Decimal("99")
         assert by_sku[SKU("A-1")].barcode == "111"
 
+    def test_variants_are_created_tracked(self):
+        # Created tracked (stock 0) so the hourly scrape can write real stock.
+        d = to_product_draft(self._group())
+        assert all(v.track_inventory for v in d.variants)
+
 
 class TestPipeline:
     """group_products → to_product_draft carries text + price end to end."""

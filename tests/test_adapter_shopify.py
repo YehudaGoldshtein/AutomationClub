@@ -29,6 +29,7 @@ class _FakeShopifyApi:
         self.products: dict[int, dict] = {p["id"]: p for p in products}
         self.location_id = location_id
         self.inventory: dict[int, int] = {}
+        self.tracked: dict[int, bool] = {}  # inventory_item_id -> tracking enabled (default True)
         for p in products:
             for v in p.get("variants", []):
                 self.inventory[v["inventory_item_id"]] = v.get("inventory_quantity", 0)
@@ -54,10 +55,20 @@ class _FakeShopifyApi:
             return httpx.Response(
                 200, json={"locations": [{"id": self.location_id, "name": "Primary"}]}
             )
+        if method == "PUT" and "/inventory_items/" in path and path.endswith(".json"):
+            iid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
+            import json as _json
+            body = _json.loads(request.content.decode())
+            self.tracked[iid] = bool(body["inventory_item"].get("tracked", True))
+            return httpx.Response(200, json={"inventory_item": {"id": iid, "tracked": self.tracked[iid]}})
         if method == "POST" and path.endswith("/inventory_levels/set.json"):
             body = request.content.decode() if request.content else "{}"
             import json as _json
             data = _json.loads(body)
+            if not self.tracked.get(data["inventory_item_id"], True):
+                return httpx.Response(422, json={
+                    "errors": ["Inventory item does not have inventory tracking enabled"]
+                })
             self.inventory[data["inventory_item_id"]] = data["available"]
             for p in self.products.values():
                 for v in p.get("variants", []):
@@ -295,6 +306,19 @@ class TestUpdateStock:
         with pytest.raises(ShopifyError, match="no variant cached"):
             adapter.update_stock(SKU("NOT-CACHED"), StockLevel(1))
 
+    def test_self_heals_when_tracking_disabled(self):
+        """422 'tracking not enabled' → enable tracking on the item, then retry set."""
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "X", 0)])])
+        fake.tracked[100] = False  # this variant has inventory tracking off
+        adapter = _make_adapter(fake)
+        adapter.list_products()
+
+        adapter.update_stock(SKU("X"), StockLevel(9))  # must not raise
+
+        assert fake.tracked[100] is True          # tracking was enabled
+        assert fake.inventory[100] == 9           # and the set succeeded on retry
+        assert ("PUT", "/admin/api/2024-10/inventory_items/100.json") in fake.request_log
+
 
 class TestPublishStatus:
     def test_unpublish_sets_status_archived(self):
@@ -392,6 +416,22 @@ class TestCreateProductMetafields:
             "type": "rich_text_field", "value": '{"x":1}',
         }
         assert product["variants"][0]["inventory_management"] == "shopify"
+
+    def test_track_inventory_enables_management_without_quantity(self):
+        """Laura drafts: track_inventory=True → inventory_management set even with no qty."""
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(ProductDraft(
+            title="בגד", body_html="<p>x</p>", vendor="לורה סוויסרה | laura swisra",
+            product_type="בגד גוף", tags="בגד גוף",
+            variants=(VariantSpec(SKU("L-1"), price=Decimal("99"), track_inventory=True),),
+            status="draft",
+        ))
+
+        variant = fake.created_payloads[0]["product"]["variants"][0]
+        assert variant["inventory_management"] == "shopify"
 
     def test_laura_style_draft_omits_new_keys(self):
         """Regression: a draft without metafields/template/stock (Laura) must produce

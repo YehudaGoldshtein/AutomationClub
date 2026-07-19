@@ -143,44 +143,63 @@ vendor cache still updates — it's raw vendor data, useful regardless.
 
 ---
 
-## Product upload (Laura) — draft → approve → activate
+## Product onboarding (draft → approve → activate)
 
-A second entrypoint alongside the hourly stock sync: turning Laura's product
-spreadsheet into **net-new** store products. Uploaded products are created as
-**drafts** and only go live after a human confirms them in the dashboard.
+A second entrypoint alongside stock sync: turn a supplier's catalog into
+**net-new** store products. Created as **drafts**, they go live only after a
+human approves them in the dashboard (or are deleted if ignored).
 
 ```
-dashboard upload → Vercel Blob
-        │  workflow_dispatch(blob_url, customer_id)
-        ▼
- inventory-ingest.yml → python -m inventory_sync ingest
-        │  parse xlsx → group (color=product, size=variant)
-        │  skip existing SKUs (skip-dominant: ~all rows)
-        │  create DRAFT + category/sub-category collections
-        │  write_pending → store_products (status=draft, approved=false, flags)
-        ▼
- dashboard "Pending" view → user approves → sets approved=true (Neon write only)
-        ▼
- hourly sync  (or reconcile.yml "activate now")
-        │  reconcile: list_approved_drafts → republish → mark_active
-        ▼
-      LIVE
+ supplier source ──► ingest ──► DRAFT products (+ collections / metafields)
+        │                        + store_products(status=draft, approved=false)
+        │  Laura: dashboard xlsx → inventory-ingest.yml           │
+        │  Segal: segal-ingest.yml (Store API)                    │ dashboard "Pending":
+        ▼                                                         │   approve → approved=true  (Neon only)
+   (both create DRAFTs)                                           │   ignore  → status=rejected (Neon only)
+                                                                  ▼
+                       reconcile (hourly sync / reconcile.yml):
+                         approved → republish → active
+                         rejected → delete_product → drop rows
 ```
 
-- **Grouping** (`laura_upload.py`): size token extracted anywhere in the title;
-  clothing size always a variant, metric size a variant only with ≥2 (PRD §2).
-- **Mapping** (`laura_mapping.py`): body_html template, price = `מחיר מומלץ`,
-  family → sub-category collection (Appendix A), category collection constant.
-- **Ingest** (`laura_ingest.py` + `ingest` CLI): new-SKU = new product; a title
-  collision with an existing product is flagged `needs_review`, not duplicated.
-- **Reconcile** (`reconcile.py` + `reconcile` CLI): reuses `republish` to flip
-  approved drafts live; folded into `cmd_sync` (non-dry-run) and dispatchable via
-  `reconcile.yml`. The dashboard never holds a Shopify token — it only writes the
-  `approved` flag; the tokened job does the activation.
+**Two suppliers, one downstream:**
 
-All steps emit `customer_id`-bound Axiom events (`ingest_*`, `reconcile_*`,
-`store_products_pending_written`, `store_product_approved/activated`). Full spec:
-`PRD-laura-product-upload.md`; build/rollout: `PLAN-laura-product-upload.md`.
+| | Laura | Segal |
+|---|---|---|
+| Source | supplier Excel (`.xlsx`) → Vercel Blob | WooCommerce Store API + product-page tabs |
+| Parse | `laura_upload.py` (color=product, size=variant) | `segal_source.py` (`parse_api_product`, `parse_tabs`) |
+| Map | `laura_mapping.py` (family→collection, `clothes-product-page` template, textile delivery) | `segal_mapping.py` (category→collection/type, tabs→metafields by label, furniture template + delivery) |
+| Ingest | `laura_ingest.py` + `ingest` CLI | `segal_ingest.py` + `segal-ingest` CLI |
+| Products | simple + size variants | simple, single variant |
+| Stock at create | 0 (scrape fills later) | real count from API |
+
+The downstream (`reconcile.py`, the `store_products` lifecycle, `create_product` /
+`ensure_collection` / `delete_product`) is supplier-agnostic. Both emit
+`customer_id`-bound Axiom events (`ingest_*` / `segal_ingest_*`, `reconcile_*`,
+`store_products_*`). The dashboard **never holds a Shopify token** — it writes the
+`approved` / `rejected` flags to Neon; the tokened job does every store write.
+
+Supplier-specific rules:
+- **Laura discontinued:** an Excel row whose `מלאי זמין` contains "אזל" is not uploaded, and is archived (unpublish) if already live — `PRD-laura-product-upload.md` §1.1.
+- **Segal tabs → metafields** by label, not position; unknown tab labels are discarded + logged — `PRD-segal-product-sync.md` §4.
+
+Specs: `PRD-laura-product-upload.md`, `PRD-segal-product-sync.md` · plans:
+`PLAN-laura-product-upload.md`, `PLAN-segal-baby.md`.
+
+## Inventory tracking & sync resilience
+
+- **Tracked on create:** products are created with Shopify inventory tracking on
+  (Laura via `track_inventory`, Segal via an initial quantity) so the sync can
+  write stock — an untracked variant 422s on `inventory_levels/set`.
+- **Self-heal:** `update_stock` catches "inventory tracking not enabled", enables
+  tracking on the item, then retries — pre-existing untracked products heal on
+  their next stock change.
+- **Rate limits:** `update_stock` retries 429s with `Retry-After` backoff, so bulk
+  runs pace under Shopify's ~2 req/s instead of failing.
+- **Error isolation:** a single item's failure never fails a run — only a
+  fatal/aborted run (store or supplier unreachable) does (`SyncRun.aborted`).
+- **Binary restock:** Laura's scrape is binary (in/out, no count); back-in-stock
+  sets a configurable default (10), not a real quantity.
 
 ---
 
@@ -192,8 +211,8 @@ are selected via config, never by `if` branches in callers.
 
 | Seam | Interface | v1 impl | Future impls |
 |---|---|---|---|
-| Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`) | `ShopifyAdapter` | WooCommerce, Magento, BigCommerce |
-| Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` | Other scrapers, vendor REST APIs, CSV feeds |
+| Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`/`delete_product`) | `ShopifyAdapter` (inventory self-heal + 429 backoff) | WooCommerce, Magento, BigCommerce |
+| Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` (scrape), `SegalBabyStoreApiAdapter` (WC Store API) | Other scrapers, vendor REST APIs, CSV feeds |
 | Notification channel | `NotificationChannel` | `ResendEmailAdapter`, `WhatsAppBridgeAdapter` | SMS, Slack, Telegram, webhooks |
 | Stock policy | `StockPolicy` | `DefaultStockPolicy` (binary + exact-count modes) | pause-ads, auto-reorder, per-product overrides |
 | Sync run store | `SyncRunStore` | `SqlSyncRunStore` (SQLAlchemy Core) | S3 snapshot, external log service |
@@ -221,7 +240,7 @@ SQL adapter to prove drop-in equivalence.
 | `sync_runs` | `(run_id)` + `customer_id` index | Run history. Joins to `sync_run_changes` and `sync_run_errors` on `run_id`. |
 | `sync_run_changes` | autoincrement | Every planned + applied `StockChange` for a run. |
 | `sync_run_errors` | autoincrement | Every error from a run, with optional `sku`. |
-| `store_products` | `(customer_id, sku)` | Shopify handle + title + product-id per SKU (deep links), **plus product lifecycle**: `status` (draft\|active), `approved` + `approved_at`, `is_new_collection`, `needs_review`. Written every sync pass; also the draft→approve→activate handshake between ingest (Python), the dashboard (sets `approved`), and reconcile (sets `active`). |
+| `store_products` | `(customer_id, sku)` | Shopify handle + title + product-id per SKU (deep links), **plus product lifecycle**: `status` (draft\|active\|rejected), `approved` + `approved_at`, `is_new_collection`, `needs_review`. Written every sync pass; also the draft→approve→activate (or ignore→reject→delete) handshake between ingest (Python), the dashboard (sets `approved`/`rejected`), and reconcile (activates or deletes). |
 
 ### Global tables (shared across tenants)
 

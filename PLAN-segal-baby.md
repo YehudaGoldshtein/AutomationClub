@@ -25,13 +25,19 @@ workflows, and the skip-dominant ingest shape from `laura_ingest.py`.
 - **CLI + workflow**: `segal-ingest` subcommand; reuse reconcile for activate/ignore.
 
 ## Phases (TDD each)
-- **Phase 0 — foundation**: domain extensions + `segal_source` parsing (API product + tabs). ← start here
-- **Phase 1 — mapping**: tab routing, rich_text, entity decode, category map, `to_product_draft`.
-- **Phase 2 — adapter**: Store API pagination + per-product tab scrape (fake httpx transport).
-- **Phase 3 — ingest**: dedup / skip / create / record, error-isolated + dry-run.
-- **Phase 4 — store write**: `create_product` metafields/template_suffix/stock; contract tests.
-- **Phase 5 — wiring**: CLI subcommand + `inventory-ingest`-style workflow.
+- **Phase 0 — foundation** ✅: domain extensions + `segal_source` parsing (API product + tabs).
+- **Phase 1 — mapping** ✅: tab routing, rich_text, entity decode, category map, `to_product_draft`.
+- **Phase 2 — adapter** ✅: Store API pagination + per-product tab scrape (fake httpx transport).
+- **Phase 3 — ingest** ✅: dedup / skip / create / record, error-isolated + dry-run.
+- **Phase 4 — store write** ✅: `create_product` metafields/template_suffix/stock; contract tests.
+- **Phase 5 — wiring** ✅: `segal-ingest` CLI + workflow; reconcile for approve/ignore.
+- **Phase 6 — stock sync** ✅: `SegalBabyStoreApiAdapter.fetch_snapshots` + `segal-sync` CLI/workflow (every 3h).
+
+**Status: SHIPPED to prod.** First live ingest created 17 net-new drafts (0 errors);
+`segal-sync` runs green every ~3h. See ARCHITECTURE.md → "Product onboarding".
 
 ## Scope (from PRD §0)
-Brand `segal-baby` (16) only; 11 categories; ~150 pre-dedup. Deferred: segal-kids,
-rooms, shop-the-look, outlet/outlet-sale/spare-parts (PRD §10).
+Brand `segal-baby` (16) only. Live scope narrowed to the **6 categories PRD §3 maps**
+(beds, beds-and-toddler, dresser, soft-close-dresser, closet, storage-segal-baby).
+Deferred: the 5 unmapped categories, segal-kids, rooms, shop-the-look,
+outlet/outlet-sale/spare-parts (PRD §10).

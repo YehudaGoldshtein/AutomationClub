@@ -105,6 +105,34 @@ class TestSkip:
         assert ps.list_pending(C) == []
 
 
+class TestOutOfStock:
+    def test_oos_product_is_not_onboarded(self):
+        # Cross-supplier rule: a product OOS at source is not created as a new draft.
+        store, ps = _stores()
+        src = FakeSource({58: [_sp("OOS-1", stock=0)]})
+        summary = ingest_segal(src, store, ps, C, LOG, category_ids={"dresser": 58})
+        assert summary.created == 0
+        assert summary.skipped_oos == 1
+        assert store.list_products() == []
+        assert ps.list_pending(C) == []
+
+    def test_in_stock_still_created_alongside_oos(self):
+        store, ps = _stores()
+        src = FakeSource({58: [_sp("OOS-1", stock=0), _sp("GOOD-1", stock=3)]})
+        summary = ingest_segal(src, store, ps, C, LOG, category_ids={"dresser": 58})
+        assert summary.created == 1
+        assert summary.skipped_oos == 1
+        assert {p.sku for p in store.list_products()} == {SKU("GOOD-1")}
+
+    def test_dry_run_counts_oos_skip_without_would_create(self):
+        store, ps = _stores()
+        src = FakeSource({58: [_sp("OOS-1", stock=0)]})
+        summary = ingest_segal(src, store, ps, C, LOG,
+                               category_ids={"dresser": 58}, dry_run=True)
+        assert summary.would_create == 0
+        assert summary.skipped_oos == 1
+
+
 class TestNeedsReview:
     def test_missing_image_flags_review(self):
         store, ps = _stores()

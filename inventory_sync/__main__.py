@@ -329,7 +329,8 @@ def cmd_segal_ingest(args, log: Logger, cfg: Config) -> int:
 
     print(
         f"segal-ingest: created={summary.created} skipped_existing={summary.skipped_existing} "
-        f"errors={summary.errors} would_create={summary.would_create} dry_run={summary.dry_run}"
+        f"skipped_oos={summary.skipped_oos} errors={summary.errors} "
+        f"would_create={summary.would_create} dry_run={summary.dry_run}"
     )
     return 1 if summary.errors else 0
 

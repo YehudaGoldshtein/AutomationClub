@@ -23,6 +23,7 @@ from inventory_sync.persistence.store_product_store import NewStoreProduct
 class IngestSummary:
     created: int = 0
     skipped_existing: int = 0
+    skipped_oos: int = 0
     errors: int = 0
     would_create: int = 0
     dry_run: bool = False
@@ -83,6 +84,13 @@ def ingest_segal(source, store, product_store, customer_id: str, logger,
                 logger.info("segal_ingest_skip_existing", sku=sku, category=slug)
                 continue
 
+            # Cross-supplier rule: a product OOS at source is not onboarded as a
+            # net-new draft — it will be created on a later run once back in stock.
+            if not product.in_stock:
+                summary.skipped_oos += 1
+                logger.info("segal_ingest_skip_oos", sku=sku, category=slug)
+                continue
+
             needs_review = not collections_for(product) or not product.image_urls
 
             if dry_run:
@@ -116,6 +124,6 @@ def ingest_segal(source, store, product_store, customer_id: str, logger,
             summary.created_skus.append(sku)
 
     logger.info("segal_ingest_summary", customer_id=customer_id, created=summary.created,
-                skipped_existing=summary.skipped_existing, errors=summary.errors,
-                would_create=summary.would_create, dry_run=dry_run)
+                skipped_existing=summary.skipped_existing, skipped_oos=summary.skipped_oos,
+                errors=summary.errors, would_create=summary.would_create, dry_run=dry_run)
     return summary

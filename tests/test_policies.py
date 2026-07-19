@@ -64,12 +64,16 @@ class TestBinaryInStock:
         changes = self.policy.decide(_product(stock=10), _binary(True))
         assert changes == []
 
-    def test_sets_stock_to_one_when_store_was_zero(self):
-        """Back-in-stock from binary-only source: at least 1."""
+    def test_sets_stock_to_default_when_store_was_zero(self):
+        """Back-in-stock from binary-only source: the configured default (10)."""
         changes = self.policy.decide(_product(stock=0), _binary(True))
         assert len(changes) == 1
         assert changes[0].kind is ChangeKind.SET_STOCK
-        assert changes[0].new_stock == StockLevel(1)
+        assert changes[0].new_stock == StockLevel(10)
+
+    def test_binary_restock_qty_is_configurable(self):
+        changes = DefaultStockPolicy(binary_restock_qty=3).decide(_product(stock=0), _binary(True))
+        assert changes[0].new_stock == StockLevel(3)
 
     def test_does_not_emit_republish_automatically(self):
         changes = self.policy.decide(_product(stock=0, published=False), _binary(True))

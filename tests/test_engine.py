@@ -70,7 +70,7 @@ class TestHappyPaths:
         assert p.stock == StockLevel(0)
         assert p.published is True  # UNPUBLISH is NOT auto-emitted in v0.1
 
-    def test_binary_back_in_stock_from_zero_sets_one(self, log: Logger):
+    def test_binary_back_in_stock_from_zero_sets_default(self, log: Logger):
         store = InMemoryStore(products=[
             Product(SKU("X"), VendorProductId("V"), StockLevel(0), published=True),
         ])
@@ -79,7 +79,7 @@ class TestHappyPaths:
         run = _engine(store, supplier, log).run()
 
         assert len(run.changes_applied) == 1
-        assert store.get(SKU("X")).stock == StockLevel(1)
+        assert store.get(SKU("X")).stock == StockLevel(10)  # binary restock default
 
     def test_exact_count_syncs_to_exact_number(self, log: Logger):
         store = InMemoryStore(products=[
@@ -100,7 +100,7 @@ class TestHappyPaths:
         supplier = InMemorySupplier(snapshots={
             VendorProductId("VA"): _snap("VA", True),   # binary, store has 3 -> no change
             VendorProductId("VB"): _snap("VB", False),  # OOS -> set 0
-            VendorProductId("VC"): _snap("VC", True),   # binary, store 0 -> set 1
+            VendorProductId("VC"): _snap("VC", True),   # binary, store 0 -> set default
         })
 
         run = _engine(store, supplier, log).run()
@@ -109,7 +109,7 @@ class TestHappyPaths:
         assert run.errors == []
         assert store.get(SKU("A")).stock == StockLevel(3)
         assert store.get(SKU("B")).stock == StockLevel(0)
-        assert store.get(SKU("C")).stock == StockLevel(1)
+        assert store.get(SKU("C")).stock == StockLevel(10)
 
 
 class TestPartialFailures:

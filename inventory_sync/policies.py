@@ -22,7 +22,14 @@ class DefaultStockPolicy:
 
     Does NOT automatically emit UNPUBLISH / REPUBLISH — those are owner-triggered
     manually in v0.1. The ChangeKinds stay available for a future manual entrypoint.
+
+    `binary_restock_qty` is the placeholder set when a binary-only vendor reports
+    back-in-stock but gives no exact count (default 10, not 1 — so it doesn't read
+    as "last one" on the storefront).
     """
+
+    def __init__(self, binary_restock_qty: int = 10) -> None:
+        self.binary_restock_qty = binary_restock_qty
 
     def decide(self, product: Product, snapshot: VendorProductSnapshot) -> list[StockChange]:
         # Exact-count mode: vendor gave us a specific number.
@@ -58,8 +65,8 @@ class DefaultStockPolicy:
                 StockChange(
                     sku=product.sku,
                     kind=ChangeKind.SET_STOCK,
-                    new_stock=StockLevel(1),
-                    reason="vendor back in stock (binary, at least 1)",
+                    new_stock=StockLevel(self.binary_restock_qty),
+                    reason=f"vendor back in stock (binary, default {self.binary_restock_qty})",
                 )
             ]
         return []

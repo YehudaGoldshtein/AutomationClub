@@ -10,6 +10,8 @@ from inventory_sync.domain import SKU, ProductDraft, VariantSpec
 from inventory_sync.laura_upload import ProductGroup
 
 VENDOR = "לורה סוויסרה | laura swisra"
+# All Laura products are textile → the clothes product-page theme template.
+TEMPLATE_SUFFIX = "clothes-product-page"
 # Top-level category collection — every Laura product joins it (PRD §3).
 CATEGORY_COLLECTION_ID = "477920559358"
 OPTION_NAME = "מידה"
@@ -180,4 +182,6 @@ def to_product_draft(group: ProductGroup) -> ProductDraft:
         status="draft",
         # Fixed textile delivery/returns text (Laura); furniture has its own.
         metafields=(store_content.textile_delivery_metafield(),),
+        # All Laura products are textile → clothes product-page template.
+        template_suffix=TEMPLATE_SUFFIX,
     )

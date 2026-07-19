@@ -117,10 +117,15 @@ class TestToProductDraft:
         assert all(v.track_inventory for v in d.variants)
 
     def test_carries_shared_delivery_metafield(self):
-        # Fixed Max Baby delivery/returns text on every product (owner: "to all").
+        # Fixed textile delivery/returns text on every Laura product.
         d = to_product_draft(self._group())
         keys = {(m.namespace, m.key) for m in d.metafields}
         assert ("custom", "delivery") in keys
+
+    def test_uses_clothes_product_page_template(self):
+        # All Laura is textile → clothes product-page template.
+        d = to_product_draft(self._group())
+        assert d.template_suffix == "clothes-product-page"
 
 
 class TestPipeline:

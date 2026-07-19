@@ -1,0 +1,135 @@
+{
+  "id": 51996,
+  "name": "מעקה מעבר למיטות תינוק עם גלגלים &#8211; אגוז",
+  "slug": "%d7%9e%d7%a2%d7%a7%d7%94-%d7%9e%d7%a2%d7%91%d7%a8-%d7%9c%d7%9e%d7%99%d7%98%d7%95%d7%aa-%d7%aa%d7%99%d7%a0%d7%95%d7%a7-%d7%a2%d7%9d-%d7%92%d7%9c%d7%92%d7%9c%d7%99%d7%9d-%d7%90%d7%92%d7%95%d7%96",
+  "parent": 0,
+  "type": "simple",
+  "variation": "",
+  "permalink": "https://www.segalbaby.co.il/product/segal-baby/beds/%d7%9e%d7%a2%d7%a7%d7%94-%d7%9e%d7%a2%d7%91%d7%a8-%d7%9c%d7%9e%d7%99%d7%98%d7%95%d7%aa-%d7%aa%d7%99%d7%a0%d7%95%d7%a7-%d7%a2%d7%9d-%d7%92%d7%9c%d7%92%d7%9c%d7%99%d7%9d-%d7%90%d7%92%d7%95%d7%96/",
+  "sku": "2025102600130",
+  "short_description": "",
+  "description": "<p>מעקה מעבר למיטת תינוק מתאים לשלב בו התינוק גדל, והוא מסוגל לעלות ולרדת באופן עצמאי מהמיטה.</p>\n<p>המעקה נקנה בנפרד ומתאים למיטת סתו אגוז.</p>\n<p>המעקה עשוי עץ בוק מלא ואיכותי, והוא משמע כמגן בטיחות לתינוק.</p>",
+  "on_sale": false,
+  "prices": {
+    "price": "299",
+    "regular_price": "299",
+    "sale_price": "299",
+    "price_range": null,
+    "currency_code": "ILS",
+    "currency_symbol": "₪",
+    "currency_minor_unit": 0,
+    "currency_decimal_separator": ".",
+    "currency_thousand_separator": "",
+    "currency_prefix": "₪",
+    "currency_suffix": ""
+  },
+  "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#8362;</span>299</span>",
+  "average_rating": "0",
+  "review_count": 0,
+  "images": [
+    {
+      "id": 51998,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2025/12/IMG_9999_121-אגוז.webp",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2025/12/IMG_9999_121-אגוז-300x300.webp",
+      "srcset": "",
+      "sizes": "(max-width: 1919px) 100vw, 1919px",
+      "name": "IMG_9999_121 אגוז",
+      "alt": ""
+    }
+  ],
+  "categories": [
+    {
+      "id": 37,
+      "name": "מיטת תינוק",
+      "slug": "beds",
+      "link": "https://www.segalbaby.co.il/product-category/segal-baby/beds/"
+    },
+    {
+      "id": 16,
+      "name": "סגל בייבי",
+      "slug": "segal-baby",
+      "link": "https://www.segalbaby.co.il/product-category/segal-baby/"
+    }
+  ],
+  "tags": [
+    {
+      "id": 67,
+      "name": "Segal Baby",
+      "slug": "segal-baby",
+      "link": "https://www.segalbaby.co.il/product-tag/segal-baby/"
+    }
+  ],
+  "brands": [],
+  "attributes": [
+    {
+      "id": 2,
+      "name": "צבע",
+      "taxonomy": "pa_color",
+      "has_variations": false,
+      "terms": [
+        {
+          "id": 280,
+          "name": "אגוז",
+          "slug": "%d7%90%d7%92%d7%95%d7%96"
+        },
+        {
+          "id": 319,
+          "name": "חלב שקדים",
+          "slug": "%d7%97%d7%9c%d7%91-%d7%a9%d7%a7%d7%93%d7%99%d7%9d"
+        },
+        {
+          "id": 332,
+          "name": "ווש",
+          "slug": "wash"
+        },
+        {
+          "id": 69,
+          "name": "לבן",
+          "slug": "white"
+        },
+        {
+          "id": 118,
+          "name": "טבעי",
+          "slug": "natural"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "סדרות",
+      "taxonomy": "pa_series",
+      "has_variations": false,
+      "terms": [
+        {
+          "id": 133,
+          "name": "Segal Baby",
+          "slug": "segal-baby"
+        }
+      ]
+    }
+  ],
+  "variations": [],
+  "grouped_products": [],
+  "has_options": false,
+  "is_purchasable": true,
+  "is_in_stock": true,
+  "is_on_backorder": false,
+  "low_stock_remaining": null,
+  "stock_availability": {
+    "text": "231 במלאי",
+    "class": "in-stock"
+  },
+  "sold_individually": false,
+  "add_to_cart": {
+    "text": "הוספה לסל",
+    "description": "הוספה לעגלת הקניות: &#8220;מעקה מעבר למיטות תינוק עם גלגלים &#8211; אגוז&#8221;",
+    "url": "/wp-json/wc/store/v1/products?category=37&#038;per_page=50&#038;add-to-cart=51996",
+    "single_text": "הוספה לסל",
+    "minimum": 1,
+    "maximum": 231,
+    "multiple_of": 1
+  },
+  "extensions": {
+    "bundles": []
+  }
+}

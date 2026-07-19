@@ -1,0 +1,151 @@
+{
+  "id": 56567,
+  "name": "מעקה מעבר למיטות- ריי,רוז,להלה &#8211; ווש",
+  "slug": "%d7%9e%d7%a2%d7%a7%d7%94-%d7%9e%d7%a2%d7%91%d7%a8-%d7%9c%d7%9e%d7%99%d7%98%d7%95%d7%aa-%d7%a8%d7%99%d7%99%d7%a8%d7%95%d7%96%d7%9c%d7%94%d7%9c%d7%94-%d7%95%d7%95%d7%a9",
+  "parent": 0,
+  "type": "simple",
+  "variation": "",
+  "permalink": "https://www.segalbaby.co.il/product/segal-baby/beds/%d7%9e%d7%a2%d7%a7%d7%94-%d7%9e%d7%a2%d7%91%d7%a8-%d7%9c%d7%9e%d7%99%d7%98%d7%95%d7%aa-%d7%a8%d7%99%d7%99%d7%a8%d7%95%d7%96%d7%9c%d7%94%d7%9c%d7%94-%d7%95%d7%95%d7%a9/",
+  "sku": "2025202000021",
+  "short_description": "",
+  "description": "<p>מעקה מעבר למיטת תינוק &#8211; מתאים לשלב בו התינוק גדל ומסוגל לעלות ולרדת באופן עצמאי מהמיטה.</p>\n<p>המעקה נקנה בנפרד ויש לבדוק אם הדגם מתאים למיטה שקיימת אצלכם.</p>\n<p>המעקה מתאים למיטת ריי, רוז ולהלה.</p>\n<p>המעקה עשוי עץ בוק מלא ואיכותי, ומשמש כמגן בטיחות לתינוק.</p>",
+  "on_sale": false,
+  "prices": {
+    "price": "410",
+    "regular_price": "410",
+    "sale_price": "410",
+    "price_range": null,
+    "currency_code": "ILS",
+    "currency_symbol": "₪",
+    "currency_minor_unit": 0,
+    "currency_decimal_separator": ".",
+    "currency_thousand_separator": "",
+    "currency_prefix": "₪",
+    "currency_suffix": ""
+  },
+  "price_html": "<span class=\"woocommerce-Price-amount amount\"><span class=\"woocommerce-Price-currencySymbol\">&#8362;</span>410</span>",
+  "average_rating": "0",
+  "review_count": 0,
+  "images": [
+    {
+      "id": 56568,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2026/04/טודלר-למיטה-להלה-ווש-scaled.jpg",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2026/04/טודלר-למיטה-להלה-ווש-scaled-300x300.jpg",
+      "srcset": "",
+      "sizes": "(max-width: 2560px) 100vw, 2560px",
+      "name": "טודלר למיטה להלה ווש",
+      "alt": ""
+    },
+    {
+      "id": 29305,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/5-scaled.jpg",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/5-scaled-300x300.jpg",
+      "srcset": "",
+      "sizes": "(max-width: 2560px) 100vw, 2560px",
+      "name": "5",
+      "alt": ""
+    },
+    {
+      "id": 29304,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/1Z5A3600-scaled.jpg",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/1Z5A3600-scaled-300x300.jpg",
+      "srcset": "",
+      "sizes": "(max-width: 2560px) 100vw, 2560px",
+      "name": "1Z5A3600",
+      "alt": ""
+    },
+    {
+      "id": 29303,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/10-scaled.jpg",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/10-scaled-300x300.jpg",
+      "srcset": "",
+      "sizes": "(max-width: 2560px) 100vw, 2560px",
+      "name": "10",
+      "alt": "מעקה מעבר למיטת תינוק סגל"
+    },
+    {
+      "id": 29302,
+      "src": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/9-scaled.jpg",
+      "thumbnail": "https://www.segalbaby.co.il/wp-content/uploads/2024/05/9-scaled-300x300.jpg",
+      "srcset": "",
+      "sizes": "(max-width: 2560px) 100vw, 2560px",
+      "name": "9",
+      "alt": ""
+    }
+  ],
+  "categories": [
+    {
+      "id": 37,
+      "name": "מיטת תינוק",
+      "slug": "beds",
+      "link": "https://www.segalbaby.co.il/product-category/segal-baby/beds/"
+    },
+    {
+      "id": 16,
+      "name": "סגל בייבי",
+      "slug": "segal-baby",
+      "link": "https://www.segalbaby.co.il/product-category/segal-baby/"
+    }
+  ],
+  "tags": [
+    {
+      "id": 67,
+      "name": "Segal Baby",
+      "slug": "segal-baby",
+      "link": "https://www.segalbaby.co.il/product-tag/segal-baby/"
+    }
+  ],
+  "brands": [],
+  "attributes": [
+    {
+      "id": 2,
+      "name": "צבע",
+      "taxonomy": "pa_color",
+      "has_variations": false,
+      "terms": [
+        {
+          "id": 335,
+          "name": "לבן ווש",
+          "slug": "wash-2"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "סדרות",
+      "taxonomy": "pa_series",
+      "has_variations": false,
+      "terms": [
+        {
+          "id": 133,
+          "name": "Segal Baby",
+          "slug": "segal-baby"
+        }
+      ]
+    }
+  ],
+  "variations": [],
+  "grouped_products": [],
+  "has_options": false,
+  "is_purchasable": true,
+  "is_in_stock": false,
+  "is_on_backorder": false,
+  "low_stock_remaining": 0,
+  "stock_availability": {
+    "text": "המלאי אזל",
+    "class": "out-of-stock"
+  },
+  "sold_individually": false,
+  "add_to_cart": {
+    "text": "מידע נוסף",
+    "description": "מידע נוסף על &#8220;מעקה מעבר למיטות- ריי,רוז,להלה &#8211; ווש&#8221;",
+    "url": "https://www.segalbaby.co.il/product/segal-baby/beds/%d7%9e%d7%a2%d7%a7%d7%94-%d7%9e%d7%a2%d7%91%d7%a8-%d7%9c%d7%9e%d7%99%d7%98%d7%95%d7%aa-%d7%a8%d7%99%d7%99%d7%a8%d7%95%d7%96%d7%9c%d7%94%d7%9c%d7%94-%d7%95%d7%95%d7%a9/",
+    "single_text": "הוספה לסל",
+    "minimum": 1,
+    "maximum": 1,
+    "multiple_of": 1
+  },
+  "extensions": {
+    "bundles": []
+  }
+}

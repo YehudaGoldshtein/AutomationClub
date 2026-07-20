@@ -188,6 +188,42 @@ Supplier-specific rules:
 Specs: `PRD-laura-product-upload.md`, `PRD-segal-product-sync.md`, `PRD-bambino-product-sync.md` · plans:
 `PLAN-laura-product-upload.md`, `PLAN-segal-baby.md`.
 
+### Unified pass — single-source-of-truth suppliers
+
+Laura's stock and catalog come from **different** places (a scraped site vs a
+manually uploaded Excel), so its stock sync and product onboarding must stay two
+processes. But an **API-source supplier** (Bambino, Segal, Snir) exposes stock
+*and* catalog from **one feed** — so a single pass does both each tick:
+
+```
+ list catalog once (cheap)
+        │
+        ├─ SKU already in store ─────────► stock sync (exact count via policy)
+        │
+        └─ SKU not in store, importable, in-stock
+                 └─► enrich (EXPENSIVE — e.g. Segal tab scrape) ─► create DRAFT
+                       └─► link siblings / notify "new drafts"
+        (new + OOS → skipped; new + uncategorized → skipped)
+```
+
+The expensive per-item enrichment runs **only for genuinely-new products**, so a
+steady-state tick (nothing new) costs about the same as a plain stock sync. New
+products still land as **drafts** and go live only after dashboard approval →
+`reconcile`, exactly like the split ingest path — the approval gate is preserved.
+
+`supplier_pass.unified_pass` is the shared engine; each supplier plugs in via the
+`UnifiedSource` protocol (`list_catalog` / `sku` / `in_stock` / `is_importable` /
+`snapshot` / `enrich_to_draft` / `collections_for` / `needs_review` / `link_new`).
+Bindings: `SegalUnifiedSource` + `segal-pass` (live); Bambino + Snir to follow.
+Workflows carry a `concurrency:` guard so two passes never overlap and race the
+skip-existing dedup.
+
+**Policy going forward:** every **single-source-of-truth** (one API feed for both
+stock and catalog) supplier uses the unified `*-pass` for steady state; only
+file/scrape-catalog suppliers (Laura) keep stock sync and onboarding separate.
+The one-time **bulk load** is still run manually via `*-ingest`; the pass is for
+the steady-state trickle of new products.
+
 ## Inventory tracking & sync resilience
 
 - **Tracked on create:** products are created with Shopify inventory tracking on
@@ -215,6 +251,7 @@ are selected via config, never by `if` branches in callers.
 |---|---|---|---|
 | Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`/`delete_product`/`set_product_metafields`/`product_ids_by_vendor`) | `ShopifyAdapter` (inventory self-heal + 429 backoff; `compare_at_price` on create) | WooCommerce, Magento, BigCommerce |
 | Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` (scrape), `SegalBabyStoreApiAdapter` (WC Store API), `BambinoApiAdapter` (single master feed) | Other scrapers, vendor REST APIs, CSV feeds |
+| Unified pass source | `UnifiedSource` (`list_catalog`/`snapshot`/`enrich_to_draft`/`collections_for`/`link_new`/…) — drives `supplier_pass.unified_pass` (stock sync + onboard new, one run) | `SegalUnifiedSource` | Bambino, Snir (all single-source-of-truth suppliers) |
 | Notification channel | `NotificationChannel` | `ResendEmailAdapter`, `WhatsAppBridgeAdapter` | SMS, Slack, Telegram, webhooks |
 | Stock policy | `StockPolicy` | `DefaultStockPolicy` (binary + exact-count modes) | pause-ads, auto-reorder, per-product overrides |
 | Sync run store | `SyncRunStore` | `SqlSyncRunStore` (SQLAlchemy Core) | S3 snapshot, external log service |

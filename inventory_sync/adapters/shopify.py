@@ -343,10 +343,36 @@ class ShopifyAdapter:
         self.logger.info("location_resolved", location_id=self._location_id)
         return self._location_id
 
-    def _paginated_products(self) -> Iterator[dict]:
+    def product_ids_by_vendor(self, vendors) -> list[dict]:
+        """Product-level summaries for the given vendor tags — a bulk-cleanup helper.
+
+        Returns [{id, title, vendor, skus}] deduped across vendors. Used by the
+        Bambino pre-import delete (PRD §1); carries variant SKUs so the caller can
+        protect any product that is already a live catalog item.
+        """
+        out: list[dict] = []
+        seen: set[str] = set()
+        for vendor in vendors:
+            for p in self._paginated_products(vendor=vendor):
+                pid = str(p["id"])
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                out.append({
+                    "id": pid,
+                    "title": p.get("title") or "",
+                    "vendor": p.get("vendor") or "",
+                    "skus": [v.get("sku") for v in p.get("variants", []) if v.get("sku")],
+                })
+        return out
+
+    _UNSET = object()
+
+    def _paginated_products(self, vendor=_UNSET) -> Iterator[dict]:
         params: dict = {"limit": self.page_size}
-        if self.vendor_filter:
-            params["vendor"] = self.vendor_filter
+        effective_vendor = self.vendor_filter if vendor is self._UNSET else vendor
+        if effective_vendor:
+            params["vendor"] = effective_vendor
 
         while True:
             resp = self.client.get("/products.json", params=params)

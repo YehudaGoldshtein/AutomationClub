@@ -493,6 +493,29 @@ class TestCreateProductMetafields:
         assert 7 in fake.inventory.values()
 
 
+class TestProductIdsByVendor:
+    def test_collects_by_vendor_with_skus(self):
+        fake = _FakeShopifyApi([
+            _mk_product(1, [_mk_variant(10, 100, "OLD-1", 0)], vendor="joie"),
+            _mk_product(2, [_mk_variant(20, 200, "OLD-2", 0)], vendor="graco"),
+            _mk_product(3, [_mk_variant(30, 300, "KEEP", 0)], vendor="segal | סגל"),
+        ])
+        adapter = _make_adapter(fake)
+
+        rows = adapter.product_ids_by_vendor(["joie", "graco"])
+
+        assert {r["id"] for r in rows} == {"1", "2"}
+        assert {r["vendor"] for r in rows} == {"joie", "graco"}
+        by_id = {r["id"]: r for r in rows}
+        assert by_id["1"]["skus"] == ["OLD-1"]
+
+    def test_dedupes_across_vendor_queries(self):
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "X", 0)], vendor="joie")])
+        adapter = _make_adapter(fake)
+        rows = adapter.product_ids_by_vendor(["joie", "joie"])
+        assert len(rows) == 1
+
+
 class TestCompareAtPrice:
     def test_compare_at_price_emitted_when_on_sale(self):
         """Bambino discount (§2): sale price on `price`, original on compare_at_price."""

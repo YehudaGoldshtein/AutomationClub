@@ -508,7 +508,10 @@ def _build_shopify_adapter(cfg: Config, log: Logger, vendor_filter=_VENDOR_FILTE
     client = httpx.Client(
         base_url=cfg.shopify.admin_api_base_url,
         headers={"X-Shopify-Access-Token": cfg.shopify.admin_api_token},
-        timeout=30.0,
+        # Generous read timeout: create_product makes Shopify fetch images
+        # server-side, which can exceed 30s and (on a slow link) time out the
+        # read AFTER the product is created — causing duplicate creates.
+        timeout=httpx.Timeout(120.0, connect=15.0),
     )
     vf = cfg.vendor.store_tag if vendor_filter is _VENDOR_FILTER_DEFAULT else vendor_filter
     return ShopifyAdapter(client=client, logger=log, vendor_filter=vf)
@@ -564,7 +567,7 @@ def _build_shopify_adapter_for(customer: Customer, log: Logger) -> ShopifyAdapte
     client = httpx.Client(
         base_url=base_url,
         headers={"X-Shopify-Access-Token": token},
-        timeout=30.0,
+        timeout=httpx.Timeout(120.0, connect=15.0),  # image-heavy create_product can exceed 30s
     )
     return ShopifyAdapter(client=client, logger=log, vendor_filter=vendor_filter)
 

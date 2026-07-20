@@ -1,0 +1,57 @@
+name: bambino-delete-existing
+
+# DESTRUCTIVE, one-time: delete the 94 legacy brand products (vendor
+# infanti/joie/graco/GRACO/BAMBINO) before re-importing the clean 526 (PRD §1).
+# Manual only. Dry-run unless `confirm: true`. A catalog guard (on unless
+# disable_guard) never deletes a product whose SKU is a live Bambino catalogNumber.
+# Run this BEFORE bambino-ingest.
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Tenant'
+        type: string
+        required: true
+        default: 'maxbaby'
+      confirm:
+        description: 'ACTUALLY DELETE (leave false for a dry-run preview)'
+        type: boolean
+        default: false
+      disable_guard:
+        description: 'Disable the catalog guard (advanced — normally leave false)'
+        type: boolean
+        default: false
+
+jobs:
+  bambino-delete-existing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Bambino delete legacy products
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: |
+          ARGS="--customer-id ${{ inputs.customer_id }}"
+          if [[ "${{ inputs.confirm }}" == "true" ]]; then ARGS="$ARGS --confirm"; fi
+          if [[ "${{ inputs.disable_guard }}" == "true" ]]; then ARGS="$ARGS --no-guard"; fi
+          python -m inventory_sync bambino-delete-existing $ARGS

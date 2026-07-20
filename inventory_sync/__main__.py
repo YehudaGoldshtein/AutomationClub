@@ -34,6 +34,9 @@ from inventory_sync.customers import (
 )
 from inventory_sync.engine import SyncEngine
 from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter
+from inventory_sync.adapters.bambino import BambinoApiAdapter
+from inventory_sync.bambino_delete import delete_existing_bambino_brands
+from inventory_sync.bambino_ingest import ingest_bambino
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.log import Logger, configure
@@ -363,6 +366,82 @@ def cmd_segal_sync(args, log: Logger, cfg: Config) -> int:
     return 1 if run.aborted else 0
 
 
+def cmd_bambino_ingest(args, log: Logger, cfg: Config) -> int:
+    """Ingest Bambino products from the master API: create net-new drafts (§2-§9)."""
+    log = log.bind(customer_id=args.customer_id)
+    log.info("bambino_ingest_command_start", dry_run=args.dry_run)
+
+    source = _build_bambino_adapter(log)
+    # No vendor filter: dedup must catch an existing SKU regardless of its vendor tag.
+    store = _build_shopify_adapter(cfg, log, vendor_filter=None)
+    product_store = _build_store_product_store(cfg, log)
+    summary = ingest_bambino(source, store, product_store, args.customer_id, log, dry_run=args.dry_run)
+
+    print(
+        f"bambino-ingest: created={summary.created} skipped_existing={summary.skipped_existing} "
+        f"skipped_oos={summary.skipped_oos} skipped_uncategorized={summary.skipped_uncategorized} "
+        f"linked={summary.linked} errors={summary.errors} "
+        f"would_create={summary.would_create} dry_run={summary.dry_run}"
+    )
+    return 1 if summary.errors else 0
+
+
+def cmd_bambino_sync(args, log: Logger, cfg: Config) -> int:
+    """Sync stock (quantity + in/out) for existing Bambino products.
+
+    Bambino spans 9 vendors under one feed, so we can't vendor-filter the store.
+    Instead we list all products, keep only those whose SKU is a Bambino
+    catalogNumber, and sync just those (avoids vendor-missing noise). Stock only;
+    never archives and never touches price.
+    """
+    log = log.bind(customer_id=args.customer_id)
+    log.info("bambino_sync_command_start", dry_run=args.dry_run)
+    supplier = _build_bambino_adapter(log)
+    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=None)
+    store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
+
+    catalog_skus = {p.catalog_number for p in supplier.fetch_all_products() if p.catalog_number}
+    products = [p for p in store.list_products() if str(p.sku) in catalog_skus]
+    snapshots = supplier.fetch_snapshots([p.vendor_product_id for p in products])
+    run = SyncEngine(store=store, supplier=supplier, policy=DefaultStockPolicy(),
+                     logger=log).run_with_data(products, snapshots)
+
+    print(
+        f"bambino-sync: items_checked={run.items_checked} "
+        f"changes_planned={len(run.changes_planned)} changes_applied={len(run.changes_applied)} "
+        f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} dry_run={args.dry_run}"
+    )
+    if not run.aborted and run.errors:
+        log.warning("bambino_sync_completed_with_isolated_errors", errors=len(run.errors))
+    return 1 if run.aborted else 0
+
+
+def cmd_bambino_delete_existing(args, log: Logger, cfg: Config) -> int:
+    """Delete the 94 legacy brand products before re-import (§1). Dry-run by default.
+
+    DESTRUCTIVE: requires --confirm to actually delete. A catalog guard (on unless
+    --no-guard) never deletes a product whose SKU is a live Bambino catalogNumber.
+    """
+    log = log.bind(customer_id=args.customer_id)
+    log.info("bambino_delete_command_start", confirm=args.confirm, no_guard=args.no_guard)
+    store = _build_shopify_adapter(cfg, log, vendor_filter=None)
+
+    protect_skus: set[str] = set()
+    if not args.no_guard:
+        supplier = _build_bambino_adapter(log)
+        protect_skus = {p.catalog_number for p in supplier.fetch_all_products() if p.catalog_number}
+
+    summary = delete_existing_bambino_brands(store, log, confirm=args.confirm,
+                                             protect_skus=protect_skus)
+    print(
+        f"bambino-delete-existing: found={summary.found} deleted={summary.deleted} "
+        f"protected={summary.protected} errors={summary.errors} confirmed={summary.confirmed}"
+    )
+    if not summary.confirmed:
+        print("DRY-RUN — no products deleted. Re-run with --confirm to delete.")
+    return 1 if summary.errors else 0
+
+
 def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     """Activate approved draft products (draft → active) for one customer."""
     log = log.bind(customer_id=args.customer_id)
@@ -402,6 +481,15 @@ def _build_segal_adapter(log: Logger) -> SegalBabyStoreApiAdapter:
         follow_redirects=True,
     )
     return SegalBabyStoreApiAdapter(client=client, logger=log)
+
+
+def _build_bambino_adapter(log: Logger) -> BambinoApiAdapter:
+    client = httpx.Client(
+        timeout=60.0,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; InventorySyncBot/0.1)"},
+        follow_redirects=True,
+    )
+    return BambinoApiAdapter(client=client, logger=log)
 
 
 def _resolve_shopify_token(customer_id: str) -> str:
@@ -612,6 +700,33 @@ def main(argv: list[str] | None = None) -> int:
     segsync.add_argument("--dry-run", action="store_true",
                          help="Plan stock changes but don't write to the store")
 
+    bam = sub.add_parser(
+        "bambino-ingest",
+        help="Ingest Bambino products from the master API: create net-new drafts",
+    )
+    bam.add_argument("--customer-id", required=True, help="Tenant to ingest into")
+    bam.add_argument("--dry-run", action="store_true",
+                     help="Fetch + report what would be created, but write nothing")
+
+    bamsync = sub.add_parser(
+        "bambino-sync",
+        help="Sync stock (quantity + in/out) for existing Bambino products",
+    )
+    bamsync.add_argument("--customer-id", default="maxbaby",
+                         help="Tenant to tag Axiom events with (default: maxbaby)")
+    bamsync.add_argument("--dry-run", action="store_true",
+                         help="Plan stock changes but don't write to the store")
+
+    bamdel = sub.add_parser(
+        "bambino-delete-existing",
+        help="Delete the 94 legacy brand products before re-import (§1). Dry-run by default",
+    )
+    bamdel.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
+    bamdel.add_argument("--confirm", action="store_true",
+                        help="Actually delete (default: dry-run, deletes nothing)")
+    bamdel.add_argument("--no-guard", action="store_true",
+                        help="Disable the catalog guard that protects live Bambino SKUs")
+
     rec = sub.add_parser(
         "reconcile",
         help="Activate approved draft products (draft → active)",
@@ -637,6 +752,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_segal_ingest(args, log, cfg)
     if command == "segal-sync":
         return cmd_segal_sync(args, log, cfg)
+    if command == "bambino-ingest":
+        return cmd_bambino_ingest(args, log, cfg)
+    if command == "bambino-sync":
+        return cmd_bambino_sync(args, log, cfg)
+    if command == "bambino-delete-existing":
+        return cmd_bambino_delete_existing(args, log, cfg)
     if command == "reconcile":
         return cmd_reconcile(args, log, cfg)
 

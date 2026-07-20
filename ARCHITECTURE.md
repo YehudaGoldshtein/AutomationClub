@@ -162,16 +162,16 @@ human approves them in the dashboard (or are deleted if ignored).
                          rejected → delete_product → drop rows
 ```
 
-**Two suppliers, one downstream:**
+**Three suppliers, one downstream:**
 
-| | Laura | Segal |
-|---|---|---|
-| Source | supplier Excel (`.xlsx`) → Vercel Blob | WooCommerce Store API + product-page tabs |
-| Parse | `laura_upload.py` (color=product, size=variant) | `segal_source.py` (`parse_api_product`, `parse_tabs`) |
-| Map | `laura_mapping.py` (family→collection, `clothes-product-page` template, textile delivery) | `segal_mapping.py` (category→collection/type, tabs→metafields by label, furniture template + delivery) |
-| Ingest | `laura_ingest.py` + `ingest` CLI | `segal_ingest.py` + `segal-ingest` CLI |
-| Products | simple + size variants | simple, single variant |
-| Stock at create | 0 (scrape fills later) | real count from API |
+| | Laura | Segal | Bambino |
+|---|---|---|---|
+| Source | supplier Excel (`.xlsx`) → Vercel Blob | WooCommerce Store API + product-page tabs | one master API (`api.bambinok.com/cache/Bambino`), 9 brands |
+| Parse | `laura_upload.py` (color=product, size=variant) | `segal_source.py` (`parse_api_product`, `parse_tabs`) | `bambino_source.py` (`parse_products`, `parse_warranties`) |
+| Map | `laura_mapping.py` (family→collection, `clothes-product-page` template, textile delivery) | `segal_mapping.py` (category→collection/type, tabs→metafields by label, furniture template + delivery) | `bambino_mapping.py` (types-id→collection precedence, brand→vendor, discount→compare_at, HTML→rich_text tree, `bambino` template) |
+| Ingest | `laura_ingest.py` + `ingest` CLI | `segal_ingest.py` + `segal-ingest` CLI | `bambino_ingest.py` + `bambino-ingest` CLI (color groups + `related_products` backfill) |
+| Products | simple + size variants | simple, single variant | simple, single variant (one per color) |
+| Stock at create | 0 (scrape fills later) | real count from API | real count from API |
 
 The downstream (`reconcile.py`, the `store_products` lifecycle, `create_product` /
 `ensure_collection` / `delete_product`) is supplier-agnostic. Both emit
@@ -182,8 +182,10 @@ The downstream (`reconcile.py`, the `store_products` lifecycle, `create_product`
 Supplier-specific rules:
 - **Laura discontinued:** an Excel row whose `מלאי זמין` contains "אזל" is not uploaded, and is archived (unpublish) if already live — `PRD-laura-product-upload.md` §1.1.
 - **Segal tabs → metafields** by label, not position; unknown tab labels are discarded + logged — `PRD-segal-product-sync.md` §4.
+- **Cross-supplier OOS gate:** a product out of stock at source is not onboarded as a net-new draft (it lands on a later run once restocked). Applies to Segal + Bambino; Laura is exempt (its inventory source of truth differs).
+- **Bambino colors:** each color is a separate product; after a color group is created, `custom.related_products` is backfilled with the sibling GIDs (needs the `set_product_metafields` seam) — `PRD-bambino-product-sync.md` §4. Uncategorized products (only Signature/feeding/hygiene types) and the 94 legacy brand products are handled by owner decision (skip / one-time `bambino-delete-existing`, dry-run-default + catalog-guarded).
 
-Specs: `PRD-laura-product-upload.md`, `PRD-segal-product-sync.md` · plans:
+Specs: `PRD-laura-product-upload.md`, `PRD-segal-product-sync.md`, `PRD-bambino-product-sync.md` · plans:
 `PLAN-laura-product-upload.md`, `PLAN-segal-baby.md`.
 
 ## Inventory tracking & sync resilience
@@ -211,8 +213,8 @@ are selected via config, never by `if` branches in callers.
 
 | Seam | Interface | v1 impl | Future impls |
 |---|---|---|---|
-| Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`/`delete_product`) | `ShopifyAdapter` (inventory self-heal + 429 backoff) | WooCommerce, Magento, BigCommerce |
-| Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` (scrape), `SegalBabyStoreApiAdapter` (WC Store API) | Other scrapers, vendor REST APIs, CSV feeds |
+| Store platform | `StorePlatform` (read/stock/publish + `create_product`/`ensure_collection`/`add_to_collection`/`delete_product`/`set_product_metafields`/`product_ids_by_vendor`) | `ShopifyAdapter` (inventory self-heal + 429 backoff; `compare_at_price` on create) | WooCommerce, Magento, BigCommerce |
+| Supplier source | `SupplierSource` (+ optional `fetch_catalog_skus` for sitemap pre-filter) | `LauraDesignScraperAdapter` (scrape), `SegalBabyStoreApiAdapter` (WC Store API), `BambinoApiAdapter` (single master feed) | Other scrapers, vendor REST APIs, CSV feeds |
 | Notification channel | `NotificationChannel` | `ResendEmailAdapter`, `WhatsAppBridgeAdapter` | SMS, Slack, Telegram, webhooks |
 | Stock policy | `StockPolicy` | `DefaultStockPolicy` (binary + exact-count modes) | pause-ads, auto-reorder, per-product overrides |
 | Sync run store | `SyncRunStore` | `SqlSyncRunStore` (SQLAlchemy Core) | S3 snapshot, external log service |

@@ -62,6 +62,7 @@ class InMemoryStore:
                 handle=None,
                 title=draft.title,
                 store_product_id=product_id,
+                vendor=draft.vendor,
             )
         return CreatedProduct(store_product_id=product_id, variant_ids_by_sku=variant_ids)
 

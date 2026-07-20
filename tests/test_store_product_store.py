@@ -89,6 +89,10 @@ class TestWritePending:
         store.write_pending(C, [_pending("N-2", pid="901")])
         assert store.get(C, "N-2").needs_review_reason is None
 
+    def test_vendor_round_trips(self, store):
+        store.write_pending(C, [_pending("N-3", pid="902", vendor="segal | סגל")])
+        assert store.get(C, "N-3").vendor == "segal | סגל"
+
 
 class TestNonClobberInvariant:
     """The load-bearing property: hourly upsert_many refreshes metadata only."""
@@ -171,7 +175,7 @@ class TestMigration:
         engine = self._legacy_engine()
         added = add_store_products_lifecycle_columns(engine)
         assert set(added) == {"status", "approved", "approved_at", "is_new_collection",
-                              "needs_review", "needs_review_reason"}
+                              "needs_review", "needs_review_reason", "vendor"}
         rec = SqlStoreProductStore(engine=engine, logger=get("test")).get("maxbaby", "OLD-1")
         assert rec.status == "active"   # pre-existing live products are not swept into review
         assert rec.approved is True

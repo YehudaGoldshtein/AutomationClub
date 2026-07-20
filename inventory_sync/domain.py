@@ -42,6 +42,7 @@ class Product:
     handle: str | None = None
     title: str | None = None
     store_product_id: str | None = None
+    vendor: str | None = None  # store-side vendor/supplier tag (for dashboard grouping)
 
 
 class ChangeKind(str, Enum):

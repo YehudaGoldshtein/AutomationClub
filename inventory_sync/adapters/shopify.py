@@ -89,6 +89,7 @@ class ShopifyAdapter:
             product_id = sp["id"]
             handle = sp.get("handle") or None
             title = sp.get("title") or None
+            vendor = sp.get("vendor") or None
             published = sp.get("status", "active") == "active"
             for variant in sp.get("variants", []):
                 sku_raw = variant.get("sku")
@@ -110,6 +111,7 @@ class ShopifyAdapter:
                         handle=handle,
                         title=title,
                         store_product_id=str(product_id),
+                        vendor=vendor,
                     )
                 )
 

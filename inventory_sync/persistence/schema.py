@@ -158,6 +158,7 @@ store_products = Table(
     Column("handle", String, nullable=True),
     Column("title", String, nullable=True),
     Column("store_product_id", String, nullable=True),
+    Column("vendor", String, nullable=True),  # store vendor/supplier tag (laura/segal/snir/brand)
     Column("updated_at", DateTime(timezone=True), nullable=False),
     # --- lifecycle (Laura upload: draft → approve → activate) ---
     # server_default so the per-sync upsert (which omits these) makes existing/

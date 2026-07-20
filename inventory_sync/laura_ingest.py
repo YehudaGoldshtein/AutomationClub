@@ -128,6 +128,7 @@ def _create_and_record(store, product_store, customer_id, group, draft, sub_name
             sku=str(v.sku),
             store_product_id=created.store_product_id,
             title=group.title,
+            vendor=draft.vendor,
             is_new_collection=is_new_collection,
             needs_review=review_reason is not None,
             needs_review_reason=review_reason,

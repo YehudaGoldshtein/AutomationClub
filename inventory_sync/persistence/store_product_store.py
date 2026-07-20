@@ -30,6 +30,7 @@ class NewStoreProduct:
     store_product_id: str
     handle: str | None = None
     title: str | None = None
+    vendor: str | None = None
     is_new_collection: bool = False
     needs_review: bool = False
     needs_review_reason: str | None = None  # review_reasons code(s), comma-joined
@@ -43,6 +44,7 @@ class StoreProductRecord:
     handle: str | None
     title: str | None
     store_product_id: str | None
+    vendor: str | None
     status: str
     approved: bool
     approved_at: datetime | None
@@ -69,6 +71,7 @@ class SqlStoreProductStore:
                 "handle": p.handle,
                 "title": p.title,
                 "store_product_id": p.store_product_id,
+                "vendor": p.vendor,
                 "updated_at": now,
             }
             for p in products
@@ -85,6 +88,7 @@ class SqlStoreProductStore:
                     "handle": stmt.excluded.handle,
                     "title": stmt.excluded.title,
                     "store_product_id": stmt.excluded.store_product_id,
+                    "vendor": stmt.excluded.vendor,
                     "updated_at": stmt.excluded.updated_at,
                 },
             )
@@ -96,6 +100,7 @@ class SqlStoreProductStore:
                     "handle": stmt.excluded.handle,
                     "title": stmt.excluded.title,
                     "store_product_id": stmt.excluded.store_product_id,
+                    "vendor": stmt.excluded.vendor,
                     "updated_at": stmt.excluded.updated_at,
                 },
             )
@@ -129,6 +134,7 @@ class SqlStoreProductStore:
                 "handle": it.handle,
                 "title": it.title,
                 "store_product_id": it.store_product_id,
+                "vendor": it.vendor,
                 "status": "draft",
                 "approved": False,
                 "approved_at": None,
@@ -243,6 +249,7 @@ def _to_record(row) -> StoreProductRecord:
         handle=row["handle"],
         title=row["title"],
         store_product_id=row["store_product_id"],
+        vendor=row["vendor"],
         status=row["status"],
         approved=bool(row["approved"]),
         approved_at=row["approved_at"],

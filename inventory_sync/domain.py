@@ -110,6 +110,7 @@ class VariantSpec:
     option_value: str | None = None
     barcode: str | None = None
     price: Decimal | None = None
+    compare_at_price: Decimal | None = None  # struck-through original when on sale (Bambino discount, §2)
     inventory_quantity: int | None = None
     track_inventory: bool = False  # enable Shopify inventory tracking even without an initial qty
 

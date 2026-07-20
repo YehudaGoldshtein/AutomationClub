@@ -24,6 +24,7 @@ class InMemoryStore:
         self._products: dict[SKU, Product] = {p.sku: p for p in (products or [])}
         self._collections: dict[str, str] = {}   # title -> collection_id
         self.collects: list[tuple[str, str]] = []  # (store_product_id, collection_id)
+        self.metafield_writes: list[tuple[str, tuple]] = []  # (store_product_id, metafields)
         self._seq = 0
 
     def _next_id(self) -> str:
@@ -74,6 +75,9 @@ class InMemoryStore:
 
     def add_to_collection(self, store_product_id: str, collection_id: str) -> None:
         self.collects.append((store_product_id, collection_id))
+
+    def set_product_metafields(self, store_product_id: str, metafields) -> None:
+        self.metafield_writes.append((store_product_id, tuple(metafields)))
 
     def delete_product(self, store_product_id: str) -> None:
         self._products = {

@@ -40,6 +40,7 @@ class _FakeShopifyApi:
         self.custom_collections: dict[int, dict] = {}  # id -> {"id", "title"}
         self.collects: list[dict] = []                 # {"product_id", "collection_id"}
         self.created_payloads: list[dict] = []         # bodies POSTed to /products.json
+        self.product_metafields: dict[int, list[dict]] = {}  # product_id -> metafields set post-create
 
     def _new_id(self) -> int:
         self._next_id += 1
@@ -106,6 +107,12 @@ class _FakeShopifyApi:
             collect = _json.loads(request.content.decode())["collect"]
             self.collects.append(collect)
             return httpx.Response(201, json={"collect": collect})
+        if method == "POST" and "/products/" in path and path.endswith("/metafields.json"):
+            import json as _json
+            pid = int(path.split("/products/")[1].split("/")[0])
+            mf = _json.loads(request.content.decode())["metafield"]
+            self.product_metafields.setdefault(pid, []).append(mf)
+            return httpx.Response(201, json={"metafield": {**mf, "id": self._new_id()}})
         if method == "DELETE" and "/products/" in path and path.endswith(".json"):
             pid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
             self.products.pop(pid, None)
@@ -484,6 +491,63 @@ class TestCreateProductMetafields:
         adapter.update_stock(SKU("S-1"), StockLevel(7))  # ref cached on create
 
         assert 7 in fake.inventory.values()
+
+
+class TestCompareAtPrice:
+    def test_compare_at_price_emitted_when_on_sale(self):
+        """Bambino discount (§2): sale price on `price`, original on compare_at_price."""
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(ProductDraft(
+            title="עגלה", body_html="<p>x</p>", vendor="graco",
+            product_type="", tags="",
+            variants=(VariantSpec(SKU("B-1"), price=Decimal("349"),
+                                  compare_at_price=Decimal("399")),),
+            status="draft",
+        ))
+
+        variant = fake.created_payloads[0]["product"]["variants"][0]
+        assert variant["price"] == "349"
+        assert variant["compare_at_price"] == "399"
+
+    def test_no_compare_at_price_when_absent(self):
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.create_product(ProductDraft(
+            title="עגלה", body_html="<p>x</p>", vendor="graco",
+            product_type="", tags="",
+            variants=(VariantSpec(SKU("B-1"), price=Decimal("399")),), status="draft",
+        ))
+        assert "compare_at_price" not in fake.created_payloads[0]["product"]["variants"][0]
+
+
+class TestSetProductMetafields:
+    def test_writes_metafields_to_existing_product(self):
+        """related_products backfill (§4): set after the color group is created."""
+        from inventory_sync.domain import Metafield
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        adapter.set_product_metafields("555", [
+            Metafield("custom", "related_products", "list.product_reference",
+                      '["gid://shopify/Product/1","gid://shopify/Product/2"]'),
+        ])
+
+        assert fake.product_metafields[555][0] == {
+            "namespace": "custom", "key": "related_products",
+            "type": "list.product_reference",
+            "value": '["gid://shopify/Product/1","gid://shopify/Product/2"]',
+        }
+
+    def test_empty_metafields_is_noop(self):
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+        adapter.set_product_metafields("555", [])
+        assert fake.product_metafields == {}
 
 
 class TestEnsureCollection:

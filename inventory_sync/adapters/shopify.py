@@ -177,6 +177,8 @@ class ShopifyAdapter:
                 vp["barcode"] = v.barcode
             if v.price is not None:
                 vp["price"] = str(v.price)
+            if v.compare_at_price is not None:
+                vp["compare_at_price"] = str(v.compare_at_price)
             if v.inventory_quantity is not None or v.track_inventory:
                 # Track inventory so a follow-up update_stock can set the level.
                 vp["inventory_management"] = "shopify"
@@ -281,6 +283,28 @@ class ShopifyAdapter:
         if resp.status_code not in (200, 201):
             self.logger.error("collect_failed", status=resp.status_code, body=resp.text[:200])
             raise ShopifyError(f"collects.json {resp.status_code}: {resp.text[:200]}")
+
+    def set_product_metafields(self, store_product_id: str, metafields) -> None:
+        """Write metafields onto an existing product (post-create backfill).
+
+        Used for Bambino's `custom.related_products` (§4): the sibling GIDs are
+        only known once every color in a group has been created, so they can't
+        be set at create time. One POST per metafield.
+        """
+        for m in metafields:
+            resp = self.client.post(
+                f"/products/{store_product_id}/metafields.json",
+                json={"metafield": {"namespace": m.namespace, "key": m.key,
+                                    "type": m.type, "value": m.value}},
+            )
+            if resp.status_code not in (200, 201):
+                self.logger.error("metafield_set_failed", store_product_id=store_product_id,
+                                  key=f"{m.namespace}.{m.key}", status=resp.status_code,
+                                  body=resp.text[:200])
+                raise ShopifyError(
+                    f"products/{store_product_id}/metafields.json {resp.status_code}: {resp.text[:200]}"
+                )
+        self.logger.info("metafields_set", store_product_id=store_product_id, count=len(metafields))
 
     # --- private ---
 

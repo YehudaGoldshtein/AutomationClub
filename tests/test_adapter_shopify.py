@@ -548,6 +548,36 @@ class TestCompareAtPrice:
         assert "compare_at_price" not in fake.created_payloads[0]["product"]["variants"][0]
 
 
+class TestImageUrlEncoding:
+    def test_safe_image_url_encodes_non_ascii_path(self):
+        from inventory_sync.adapters.shopify import _safe_image_url
+        raw = "https://storage.googleapis.com/b/פוקס.-7290121891011.jpg"
+        assert _safe_image_url(raw) == \
+            "https://storage.googleapis.com/b/%D7%A4%D7%95%D7%A7%D7%A1.-7290121891011.jpg"
+
+    def test_safe_image_url_leaves_clean_url_untouched(self):
+        from inventory_sync.adapters.shopify import _safe_image_url
+        clean = "https://cdn/bambino-wp-uploads/GS2107AAFSL000_Front-4b99ff.jpeg"
+        assert _safe_image_url(clean) == clean
+
+    def test_safe_image_url_idempotent(self):
+        from inventory_sync.adapters.shopify import _safe_image_url
+        once = _safe_image_url("https://cdn/b/פוקס.jpg")
+        assert _safe_image_url(once) == once  # already-encoded stays put (no double-encode)
+
+    def test_create_product_encodes_image_urls(self):
+        from inventory_sync.domain import ProductDraft, VariantSpec, SKU
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+        adapter.create_product(ProductDraft(
+            title="x", body_html="<p>x</p>", vendor="graco", product_type="", tags="",
+            variants=(VariantSpec(SKU("B-1"), price=Decimal("1")),),
+            image_urls=("https://cdn/b/קואלה-7290121891004.jpg",), status="draft",
+        ))
+        src = fake.created_payloads[0]["product"]["images"][0]["src"]
+        assert src == "https://cdn/b/%D7%A7%D7%95%D7%90%D7%9C%D7%94-7290121891004.jpg"
+
+
 class TestSetProductMetafields:
     def test_writes_metafields_to_existing_product(self):
         """related_products backfill (§4): set after the color group is created."""

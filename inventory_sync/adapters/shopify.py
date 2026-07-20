@@ -18,6 +18,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Iterator
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 
@@ -35,6 +36,20 @@ from inventory_sync.log import Logger, get
 
 class ShopifyError(Exception):
     pass
+
+
+def _safe_image_url(url: str) -> str:
+    """Percent-encode a media URL's path so Shopify's server-side image fetch works.
+
+    Shopify rejects image URLs with raw non-ASCII bytes in the path ("Image URL is
+    invalid") — unlike browsers/httpx, its fetcher doesn't encode them. Suppliers
+    (Bambino/Segal, Hebrew filenames) serve images at such paths. Encoding the path
+    yields a URL the CDN serves identically. Idempotent: `%` and `/` stay safe, so
+    an already-encoded URL is unchanged and a clean ASCII URL passes through.
+    """
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, quote(parts.path, safe="/%"),
+                       parts.query, parts.fragment))
 
 
 def _retry_after_seconds(resp) -> float:
@@ -196,7 +211,7 @@ class ShopifyAdapter:
         if has_size_option:
             product["options"] = [{"name": draft.option_name}]
         if draft.image_urls:
-            product["images"] = [{"src": url} for url in draft.image_urls]
+            product["images"] = [{"src": _safe_image_url(url)} for url in draft.image_urls]
         if draft.metafields:
             product["metafields"] = [
                 {"namespace": m.namespace, "key": m.key, "type": m.type, "value": m.value}

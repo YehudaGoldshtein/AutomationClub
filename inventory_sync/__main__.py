@@ -158,9 +158,13 @@ def cmd_sync(args, log: Logger, cfg: Config) -> int:
                         customer_id=customer.id, errors=len(run.errors))
 
         # Activate approved drafts + delete ignored ones since the last run.
+        # Reconcile against an UNFILTERED store: approved drafts span every supplier
+        # (Bambino/Segal/Snir/Laura), so a vendor-filtered store would fail to resolve
+        # non-primary-vendor SKUs on republish. The stock sync above stays filtered.
         if not args.dry_run:
-            rec = reconcile_approved_drafts(store, store_product_store, customer.id, log)
-            rej = reconcile_rejected_drafts(store, store_product_store, customer.id, log)
+            reconcile_store = _build_shopify_adapter_for(customer, log, vendor_filter=None)
+            rec = reconcile_approved_drafts(reconcile_store, store_product_store, customer.id, log)
+            rej = reconcile_rejected_drafts(reconcile_store, store_product_store, customer.id, log)
             if rec.errors or rej.errors:
                 worst_exit = 1
     return worst_exit
@@ -549,8 +553,14 @@ def _resolve_shopify_token(customer_id: str) -> str:
     return os.environ.get("SHOPIFY_ADMIN_API_TOKEN", "").strip()
 
 
-def _build_shopify_adapter_for(customer: Customer, log: Logger) -> ShopifyAdapter:
-    """Build a Shopify adapter scoped to a specific customer."""
+def _build_shopify_adapter_for(customer: Customer, log: Logger,
+                               vendor_filter=_VENDOR_FILTER_DEFAULT) -> ShopifyAdapter:
+    """Build a Shopify adapter scoped to a specific customer.
+
+    vendor_filter defaults to the customer's first vendor tag (stock sync); pass
+    None to list across all vendors (reconcile activates approved drafts of every
+    supplier, not just the primary one).
+    """
     if not customer.store.myshopify_domain or not customer.store.api_version:
         raise ValueError(
             f"customer {customer.id!r} has incomplete Shopify config "
@@ -563,7 +573,8 @@ def _build_shopify_adapter_for(customer: Customer, log: Logger) -> ShopifyAdapte
         f"https://{customer.store.myshopify_domain}"
         f"/admin/api/{customer.store.api_version}"
     )
-    vendor_filter = customer.vendors[0].store_tag if customer.vendors else None
+    if vendor_filter is _VENDOR_FILTER_DEFAULT:
+        vendor_filter = customer.vendors[0].store_tag if customer.vendors else None
     client = httpx.Client(
         base_url=base_url,
         headers={"X-Shopify-Access-Token": token},

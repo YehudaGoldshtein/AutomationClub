@@ -493,6 +493,31 @@ class TestCreateProductMetafields:
         assert 7 in fake.inventory.values()
 
 
+class TestReconcileNeedsUnfilteredStore:
+    """Regression: reconcile republishes approved drafts of ANY vendor, so it must
+    run against an UNFILTERED store — a vendor-filtered adapter can't resolve a
+    foreign-vendor SKU's ref and republish fails."""
+
+    def _fake(self):
+        return _FakeShopifyApi([
+            _mk_product(1, [_mk_variant(10, 100, "SEGAL-1", 0)], status="archived",
+                        vendor="segal | סגל"),
+        ])
+
+    def test_vendor_filtered_store_cannot_republish_foreign_vendor(self):
+        adapter = _make_adapter(self._fake(), vendor_filter="לורה סוויסרה | laura swisra")
+        adapter.list_products()  # primes cache — excludes the segal product
+        with pytest.raises(ShopifyError):
+            adapter.republish(SKU("SEGAL-1"))
+
+    def test_unfiltered_store_republishes_any_vendor(self):
+        fake = self._fake()
+        adapter = _make_adapter(fake, vendor_filter=None)
+        adapter.list_products()
+        adapter.republish(SKU("SEGAL-1"))
+        assert fake.products[1]["status"] == "active"
+
+
 class TestProductIdsByVendor:
     def test_collects_by_vendor_with_skus(self):
         fake = _FakeShopifyApi([

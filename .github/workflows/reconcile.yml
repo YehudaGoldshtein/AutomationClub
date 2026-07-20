@@ -1,9 +1,9 @@
 name: reconcile
 
-# Activate approved draft products (draft → active) for one customer.
-# Dispatched by the dashboard "Activate now" button after a user confirms
-# pending items. The hourly sync also reconciles automatically, so this is
-# just for immediate activation.
+# Activate approved draft products (draft → active) + delete rejected ones, for
+# one customer, across ALL suppliers (vendor-agnostic). Runs hourly on a cron so
+# confirmed products go live automatically, and on dashboard "Activate now"
+# dispatch for immediate activation. (The main sync also reconciles inline.)
 
 on:
   workflow_dispatch:
@@ -12,6 +12,9 @@ on:
         description: 'Tenant to reconcile'
         type: string
         required: true
+        default: 'maxbaby'
+  schedule:
+    - cron: '45 * * * *'   # hourly at :45 (offset from sync.yml :00)
 
 jobs:
   reconcile:
@@ -40,4 +43,7 @@ jobs:
           AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
-        run: python -m inventory_sync reconcile --customer-id "${{ inputs.customer_id }}"
+        run: |
+          # Scheduled runs have no inputs → default to maxbaby.
+          CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
+          python -m inventory_sync reconcile --customer-id "$CUSTOMER_ID"

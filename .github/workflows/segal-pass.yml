@@ -1,0 +1,65 @@
+name: segal-pass
+
+# Unified Segal pass: stock-sync existing products AND onboard new in-stock ones
+# as drafts, in one run. Supersedes running segal-sync + segal-ingest separately.
+# New products are drafts (approval-gated); a notification fires when any appear.
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Tenant'
+        type: string
+        required: true
+        default: 'maxbaby'
+      dry_run:
+        description: 'Plan changes but write nothing'
+        type: boolean
+        default: true
+  schedule:
+    - cron: '15 */3 * * *'   # every 3h, offset from other suppliers' syncs
+
+# Never let two passes overlap (avoids a dedup race double-creating new products).
+concurrency:
+  group: segal-pass-${{ github.event.inputs.customer_id || 'maxbaby' }}
+  cancel-in-progress: false
+
+jobs:
+  segal-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Segal unified pass
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Notifications (new-draft alert) — reuse the same transports as sync
+          WHATSAPP_API_BASE_URL: ${{ vars.WHATSAPP_API_BASE_URL }}
+          WHATSAPP_API_TOKEN: ${{ secrets.WHATSAPP_API_TOKEN }}
+          EMAIL_API_KEY: ${{ secrets.EMAIL_API_KEY }}
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: |
+          # Scheduled runs are live; manual dispatch honors dry_run.
+          CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            python -m inventory_sync segal-pass --customer-id "$CUSTOMER_ID" --dry-run
+          else
+            python -m inventory_sync segal-pass --customer-id "$CUSTOMER_ID"
+          fi

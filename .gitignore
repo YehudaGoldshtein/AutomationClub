@@ -26,3 +26,4 @@ venv/
 
 # Runtime cleanup / ingest artifacts
 draft_ids.json
+.bambinotmp/

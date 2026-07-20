@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from inventory_sync import review_reasons
 from inventory_sync.domain import SKU, StockLevel
 from inventory_sync.segal_mapping import (
     INGEST_CATEGORIES,
@@ -30,10 +31,11 @@ class IngestSummary:
     created_skus: list[str] = field(default_factory=list)
 
 
-def _create_and_record(store, product_store, customer_id, product, draft, needs_review, logger) -> None:
+def _create_and_record(store, product_store, customer_id, product, draft, review_reason, logger) -> None:
     """Create one product, attach its mapped collections, set stock, record pending.
 
     Product is created FIRST so a failed create leaves no orphan collection.
+    `review_reason` is a review_reasons code (or None); needs_review = reason set.
     """
     created = store.create_product(draft)
     is_new_collection = False
@@ -52,13 +54,14 @@ def _create_and_record(store, product_store, customer_id, product, draft, needs_
             store_product_id=created.store_product_id,
             title=draft.title,
             is_new_collection=is_new_collection,
-            needs_review=needs_review,
+            needs_review=review_reason is not None,
+            needs_review_reason=review_reason,
         )
     ])
     logger.info("segal_ingest_created", title=draft.title, sku=product.sku,
                 store_product_id=created.store_product_id,
                 stock=draft.variants[0].inventory_quantity,
-                is_new_collection=is_new_collection, needs_review=needs_review)
+                is_new_collection=is_new_collection, needs_review_reason=review_reason)
 
 
 def ingest_segal(source, store, product_store, customer_id: str, logger,
@@ -91,24 +94,28 @@ def ingest_segal(source, store, product_store, customer_id: str, logger,
                 logger.info("segal_ingest_skip_oos", sku=sku, category=slug)
                 continue
 
-            needs_review = not collections_for(product) or not product.image_urls
+            review_reason = review_reasons.join(
+                review_reasons.NO_COLLECTION if not collections_for(product) else None,
+                review_reasons.NO_IMAGE if not product.image_urls else None,
+            )
 
             if dry_run:
                 summary.would_create += 1
                 logger.info("segal_ingest_would_create", sku=sku, category=slug,
-                            needs_review=needs_review)
+                            needs_review_reason=review_reason)
                 continue
 
             draft = to_product_draft(product, logger)
             try:
                 _create_and_record(store, product_store, customer_id, product, draft,
-                                   needs_review, logger)
+                                   review_reason, logger)
             except Exception as first_err:
                 # A bad image URL is the common Shopify 422 — salvage without images.
                 if draft.image_urls:
                     try:
                         _create_and_record(store, product_store, customer_id, product,
-                                           replace(draft, image_urls=()), True, logger)
+                                           replace(draft, image_urls=()),
+                                           review_reasons.IMAGE_REJECTED, logger)
                         summary.created += 1
                         summary.created_skus.append(sku)
                         logger.warning("segal_ingest_created_without_image", sku=sku,

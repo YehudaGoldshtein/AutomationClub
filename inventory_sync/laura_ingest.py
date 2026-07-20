@@ -16,6 +16,7 @@ from decimal import Decimal, InvalidOperation
 
 import openpyxl
 
+from inventory_sync import review_reasons
 from inventory_sync.domain import SKU
 from inventory_sync.laura_mapping import (
     CATEGORY_COLLECTION_ID,
@@ -111,7 +112,7 @@ def parse_laura_xlsx(data: bytes) -> list[LauraRow]:
     return out
 
 
-def _create_and_record(store, product_store, customer_id, group, draft, sub_name, needs_review, logger) -> None:
+def _create_and_record(store, product_store, customer_id, group, draft, sub_name, review_reason, logger) -> None:
     """Create one product, attach collections, record the pending row.
 
     Product is created FIRST so a failed create leaves no orphan collection.
@@ -128,12 +129,14 @@ def _create_and_record(store, product_store, customer_id, group, draft, sub_name
             store_product_id=created.store_product_id,
             title=group.title,
             is_new_collection=is_new_collection,
-            needs_review=needs_review,
+            needs_review=review_reason is not None,
+            needs_review_reason=review_reason,
         )
         for v in group.variants
     ])
     logger.info("ingest_created", title=group.title, store_product_id=created.store_product_id,
-                variants=len(group.variants), is_new_collection=is_new_collection, needs_review=needs_review)
+                variants=len(group.variants), is_new_collection=is_new_collection,
+                needs_review_reason=review_reason)
 
 
 def ingest_products(rows, store, product_store, customer_id: str, logger, dry_run: bool = False) -> IngestSummary:
@@ -184,29 +187,30 @@ def ingest_products(rows, store, product_store, customer_id: str, logger, dry_ru
             continue
 
         sub_name = subcategory_collection(group.family)
-        needs_review = bool(
-            group.needs_review
-            or sub_name is None
-            or not group.image_urls
-            or not group.body_text
+        review_reason = review_reasons.join(
+            review_reasons.SUPPLIER_FLAG if group.needs_review else None,
+            review_reasons.NO_COLLECTION if sub_name is None else None,
+            review_reasons.NO_IMAGE if not group.image_urls else None,
+            review_reasons.NO_BODY if not group.body_text else None,
         )
 
         if dry_run:
             summary.would_create += 1
             logger.info("ingest_would_create", title=group.title,
-                        variants=len(group.variants), needs_review=needs_review)
+                        variants=len(group.variants), needs_review_reason=review_reason)
             continue
 
         draft = to_product_draft(group)
         try:
-            _create_and_record(store, product_store, customer_id, group, draft, sub_name, needs_review, logger)
+            _create_and_record(store, product_store, customer_id, group, draft, sub_name, review_reason, logger)
         except Exception as first_err:
             # A bad image URL is the common failure (Shopify 422). Salvage the
             # product by retrying once WITHOUT images, flagged for review.
             if draft.image_urls:
                 try:
                     _create_and_record(store, product_store, customer_id, group,
-                                       replace(draft, image_urls=()), sub_name, True, logger)
+                                       replace(draft, image_urls=()), sub_name,
+                                       review_reasons.IMAGE_REJECTED, logger)
                     summary.created += 1
                     summary.created_skus.extend(sorted(group_skus))
                     logger.warning("ingest_created_without_image", title=group.title,

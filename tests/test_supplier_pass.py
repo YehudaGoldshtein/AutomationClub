@@ -73,8 +73,12 @@ class FakeSource:
     def collections_for(self, it):
         return it.collections
 
-    def needs_review(self, it, draft):
-        return not draft.image_urls or not it.collections
+    def needs_review_reason(self, it, draft):
+        from inventory_sync import review_reasons
+        return review_reasons.join(
+            review_reasons.NO_COLLECTION if not it.collections else None,
+            review_reasons.NO_IMAGE if not draft.image_urls else None,
+        )
 
     def link_new(self, created, store, logger):
         self.linked_calls.append([sku for _, spid in [] ] or [it.sku for it, _ in created])

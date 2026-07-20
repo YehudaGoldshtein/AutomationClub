@@ -167,6 +167,7 @@ store_products = Table(
     Column("approved_at", DateTime(timezone=True), nullable=True),
     Column("is_new_collection", Boolean, nullable=False, server_default=text("0")),
     Column("needs_review", Boolean, nullable=False, server_default=text("0")),
+    Column("needs_review_reason", String, nullable=True),  # why (review_reasons codes, comma-joined)
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))

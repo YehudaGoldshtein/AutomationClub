@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from inventory_sync import review_reasons
 from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter, _to_snapshot
 from inventory_sync.domain import ProductDraft, VendorProductSnapshot
 from inventory_sync.log import Logger, get
@@ -62,8 +63,11 @@ class SegalUnifiedSource:
     def collections_for(self, item: SegalProduct) -> tuple[str, ...]:
         return collections_for(item)
 
-    def needs_review(self, item: SegalProduct, draft: ProductDraft) -> bool:
-        return not draft.image_urls or not collections_for(item)
+    def needs_review_reason(self, item: SegalProduct, draft: ProductDraft) -> str | None:
+        return review_reasons.join(
+            review_reasons.NO_COLLECTION if not collections_for(item) else None,
+            review_reasons.NO_IMAGE if not draft.image_urls else None,
+        )
 
     def link_new(self, created, store, logger) -> int:
         return 0  # Segal has no color-sibling linking (unlike Bambino)

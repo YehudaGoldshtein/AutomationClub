@@ -29,6 +29,7 @@ from inventory_sync.domain import (
     VendorProductId,
     VendorProductSnapshot,
 )
+from inventory_sync import review_reasons
 from inventory_sync.engine import SyncEngine
 from inventory_sync.persistence.store_product_store import NewStoreProduct
 
@@ -44,7 +45,7 @@ class UnifiedSource(Protocol):
     def snapshot(self, item) -> VendorProductSnapshot: ...   # existing-product stock sync
     def enrich_to_draft(self, item) -> ProductDraft: ...     # expensive; new items only
     def collections_for(self, item) -> tuple[str, ...]: ...
-    def needs_review(self, item, draft: ProductDraft) -> bool: ...
+    def needs_review_reason(self, item, draft: ProductDraft) -> str | None: ...  # review_reasons code or None
     def link_new(self, created: list[tuple[object, str]], store, logger) -> int: ...
 
 
@@ -65,8 +66,10 @@ class UnifiedPassSummary:
     new_skus: list[str] = field(default_factory=list)
 
 
-def _create_and_record(source, store, product_store, customer_id, item, draft, needs_review, logger) -> str:
-    """Create one draft, attach collections, set stock, record pending. Returns id."""
+def _create_and_record(source, store, product_store, customer_id, item, draft, review_reason, logger) -> str:
+    """Create one draft, attach collections, set stock, record pending. Returns id.
+
+    `review_reason` is a review_reasons code (or None); needs_review = reason set."""
     created = store.create_product(draft)
     is_new_collection = False
     for name in source.collections_for(item):
@@ -82,25 +85,27 @@ def _create_and_record(source, store, product_store, customer_id, item, draft, n
             store_product_id=created.store_product_id,
             title=draft.title,
             is_new_collection=is_new_collection,
-            needs_review=needs_review,
+            needs_review=review_reason is not None,
+            needs_review_reason=review_reason,
         )
     ])
     logger.info("unified_pass_created", title=draft.title, sku=source.sku(item),
-                store_product_id=created.store_product_id, needs_review=needs_review)
+                store_product_id=created.store_product_id, needs_review_reason=review_reason)
     return created.store_product_id
 
 
-def _create_with_salvage(source, store, product_store, customer_id, item, draft, needs_review,
+def _create_with_salvage(source, store, product_store, customer_id, item, draft, review_reason,
                          logger, summary) -> str | None:
     """Create; on failure retry once without images (the usual 422). None on hard fail."""
     try:
         return _create_and_record(source, store, product_store, customer_id, item, draft,
-                                  needs_review, logger)
+                                  review_reason, logger)
     except Exception as first_err:
         if draft.image_urls:
             try:
                 spid = _create_and_record(source, store, product_store, customer_id, item,
-                                          replace(draft, image_urls=()), True, logger)
+                                          replace(draft, image_urls=()),
+                                          review_reasons.IMAGE_REJECTED, logger)
                 logger.warning("unified_pass_created_without_image", sku=source.sku(item),
                                error=str(first_err)[:200])
                 return spid
@@ -159,9 +164,9 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
             logger.info("unified_pass_would_create", sku=s)
             continue
         draft = source.enrich_to_draft(it)
-        needs_review = source.needs_review(it, draft)
+        review_reason = source.needs_review_reason(it, draft)
         spid = _create_with_salvage(source, store, product_store, customer_id, it, draft,
-                                    needs_review, logger, summary)
+                                    review_reason, logger, summary)
         if spid is not None:
             summary.created += 1
             summary.new_skus.append(s)

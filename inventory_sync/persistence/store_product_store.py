@@ -32,6 +32,7 @@ class NewStoreProduct:
     title: str | None = None
     is_new_collection: bool = False
     needs_review: bool = False
+    needs_review_reason: str | None = None  # review_reasons code(s), comma-joined
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,7 @@ class StoreProductRecord:
     approved_at: datetime | None
     is_new_collection: bool
     needs_review: bool
+    needs_review_reason: str | None
     updated_at: datetime
 
 
@@ -132,6 +134,7 @@ class SqlStoreProductStore:
                 "approved_at": None,
                 "is_new_collection": it.is_new_collection,
                 "needs_review": it.needs_review,
+                "needs_review_reason": it.needs_review_reason,
                 "updated_at": now,
             }
             for it in items
@@ -148,6 +151,7 @@ class SqlStoreProductStore:
                 "store_product_id": stmt.excluded.store_product_id,
                 "is_new_collection": stmt.excluded.is_new_collection,
                 "needs_review": stmt.excluded.needs_review,
+                "needs_review_reason": stmt.excluded.needs_review_reason,
                 "updated_at": stmt.excluded.updated_at,
             },
         )
@@ -244,5 +248,6 @@ def _to_record(row) -> StoreProductRecord:
         approved_at=row["approved_at"],
         is_new_collection=bool(row["is_new_collection"]),
         needs_review=bool(row["needs_review"]),
+        needs_review_reason=row["needs_review_reason"],
         updated_at=row["updated_at"],
     )

@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
 
+from inventory_sync import review_reasons
 from inventory_sync.bambino_mapping import collections_for, is_importable, to_product_draft
 from inventory_sync.bambino_source import BambinoProduct
 from inventory_sync.domain import Metafield, StockLevel
@@ -43,10 +44,11 @@ def _related_metafield(sibling_store_ids: list[str]) -> Metafield:
                      json.dumps(gids, ensure_ascii=False))
 
 
-def _create_one(store, product_store, customer_id, product, draft, needs_review, logger) -> str:
+def _create_one(store, product_store, customer_id, product, draft, review_reason, logger) -> str:
     """Create one product, attach collections, set stock, record pending. Returns id.
 
     Product is created FIRST so a failed create leaves no orphan collection.
+    `review_reason` is a review_reasons code (or None); needs_review = reason set.
     """
     created = store.create_product(draft)
     is_new_collection = False
@@ -65,29 +67,31 @@ def _create_one(store, product_store, customer_id, product, draft, needs_review,
             store_product_id=created.store_product_id,
             title=draft.title,
             is_new_collection=is_new_collection,
-            needs_review=needs_review,
+            needs_review=review_reason is not None,
+            needs_review_reason=review_reason,
         )
     ])
     logger.info("bambino_ingest_created", title=draft.title, sku=product.catalog_number,
                 store_product_id=created.store_product_id, brand=product.brand,
                 stock=draft.variants[0].inventory_quantity,
-                is_new_collection=is_new_collection, needs_review=needs_review)
+                is_new_collection=is_new_collection, needs_review_reason=review_reason)
     return created.store_product_id
 
 
-def _create_with_salvage(store, product_store, customer_id, product, draft, needs_review,
+def _create_with_salvage(store, product_store, customer_id, product, draft, review_reason,
                          logger, summary) -> str | None:
     """Create a product; on failure, retry once without images (the usual 422).
 
     Returns the store_product_id on success, or None on hard failure (counted).
     """
     try:
-        return _create_one(store, product_store, customer_id, product, draft, needs_review, logger)
+        return _create_one(store, product_store, customer_id, product, draft, review_reason, logger)
     except Exception as first_err:
         if draft.image_urls:
             try:
                 spid = _create_one(store, product_store, customer_id, product,
-                                   replace(draft, image_urls=()), True, logger)
+                                   replace(draft, image_urls=()),
+                                   review_reasons.IMAGE_REJECTED, logger)
                 logger.warning("bambino_ingest_created_without_image",
                                sku=product.catalog_number, error=str(first_err)[:200])
                 return spid
@@ -158,15 +162,18 @@ def ingest_bambino(source, store, product_store, customer_id: str, logger,
     for members in groups.values():
         created: list[tuple[BambinoProduct, str]] = []
         for product in members:
-            needs_review = product.price is None or not product.image_urls
+            review_reason = review_reasons.join(
+                review_reasons.NO_PRICE if product.price is None else None,
+                review_reasons.NO_IMAGE if not product.image_urls else None,
+            )
             if dry_run:
                 summary.would_create += 1
                 logger.info("bambino_ingest_would_create", sku=product.catalog_number,
-                            brand=product.brand, needs_review=needs_review)
+                            brand=product.brand, needs_review_reason=review_reason)
                 continue
             draft = to_product_draft(product, warranties, today=day, logger=logger)
             spid = _create_with_salvage(store, product_store, customer_id, product, draft,
-                                        needs_review, logger, summary)
+                                        review_reason, logger, summary)
             if spid is not None:
                 summary.created += 1
                 summary.created_skus.append(product.catalog_number)

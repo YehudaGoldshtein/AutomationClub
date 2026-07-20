@@ -16,6 +16,7 @@ _STORE_PRODUCTS_LIFECYCLE: list[tuple[str, dict[str, str]]] = [
     ("approved_at", {"postgresql": "TIMESTAMPTZ", "sqlite": "TIMESTAMP"}),
     ("is_new_collection", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
     ("needs_review", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
+    ("needs_review_reason", {"postgresql": "VARCHAR", "sqlite": "TEXT"}),  # nullable; why a draft is flagged
 ]
 
 

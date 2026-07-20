@@ -87,8 +87,15 @@ class TestCreate:
     def test_needs_review_when_no_price_or_no_image(self):
         store, ps = _stores()
         _run([_p("100000001", price=None), _p("100000002", images=())], store, ps)
-        review = {r.sku: r.needs_review for r in ps.list_pending(C)}
-        assert review["100000001"] is True and review["100000002"] is True
+        review = {r.sku: (r.needs_review, r.needs_review_reason) for r in ps.list_pending(C)}
+        assert review["100000001"] == (True, "no_price")
+        assert review["100000002"] == (True, "no_image")
+
+    def test_no_review_reason_when_clean(self):
+        store, ps = _stores()
+        _run([_p("100000009")], store, ps)
+        rec = ps.list_pending(C)[0]
+        assert rec.needs_review is False and rec.needs_review_reason is None
 
 
 class TestSkips:

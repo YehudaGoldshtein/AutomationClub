@@ -9,11 +9,10 @@ name: snir-pass
 # JS-challenge once. That is why this workflow installs the `browser` extra and
 # a Chromium binary, unlike the plain-HTTP supplier workflows.
 #
-# ⚠️ SCHEDULE IS INTENTIONALLY DISABLED. A GitHub-hosted (datacenter) IP may draw
-# a *harder* WAF challenge (CAPTCHA / headless fingerprinting) than a residential
-# IP — unverified. Run this MANUALLY (dry-run) first and confirm it lists the
-# catalog and drafts cleanly from a GHA runner. Only then uncomment the schedule
-# below. If GHA is hard-blocked, fall back to a self-hosted runner / proxy.
+# Schedule ENABLED 2026-07-24: the Playwright WAF-solve was verified to work from
+# GitHub-hosted (datacenter) IPs across multiple runs (wet ingest of 68, reconcile,
+# and dry-runs) with zero challenges. If GHA ever gets hard-blocked (CAPTCHA /
+# headless fingerprinting), fall back to a self-hosted runner / proxy.
 
 on:
   workflow_dispatch:
@@ -31,9 +30,8 @@ on:
         description: 'Run the browser headed (debugging only; needs a display — leave off on CI)'
         type: boolean
         default: false
-  # schedule:
-  #   # Enable ONLY after a manual dry-run proves GHA is not WAF-blocked.
-  #   - cron: '35 */6 * * *'   # every 6h, offset from other suppliers' syncs
+  schedule:
+    - cron: '35 */6 * * *'   # every 6h, offset from other suppliers' syncs
 
 # Never let two passes overlap (avoids a dedup race double-creating new products).
 concurrency:

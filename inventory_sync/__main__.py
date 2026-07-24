@@ -55,6 +55,7 @@ from inventory_sync.notifications import (
 )
 from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
+from inventory_sync.persistence.migrations import add_store_products_lifecycle_columns
 from inventory_sync.persistence.store_product_store import SqlStoreProductStore
 from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.persistence.vendor_snapshot_cache import SqlVendorSnapshotCache
@@ -747,8 +748,16 @@ def _build_vendor_snapshot_cache(cfg: Config, log: Logger) -> SqlVendorSnapshotC
 
 
 def _build_store_product_store(cfg: Config, log: Logger) -> SqlStoreProductStore:
-    sps = SqlStoreProductStore(engine=_build_engine(cfg), logger=log)
-    sps.create_schema()
+    engine = _build_engine(cfg)
+    sps = SqlStoreProductStore(engine=engine, logger=log)
+    sps.create_schema()  # create_all: builds the table on a fresh DB (tables only)
+    # create_all never ADDs columns to an existing table, so new lifecycle columns
+    # would otherwise never reach prod (they had to be hand-added on the dashboard
+    # side). Run the idempotent ALTER migration on every build so any job
+    # (sync/pass/ingest/reconcile) self-migrates before writing.
+    added = add_store_products_lifecycle_columns(engine)
+    if added:
+        log.info("store_products_migrated", added_columns=added)
     return sps
 
 

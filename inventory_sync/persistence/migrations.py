@@ -18,6 +18,8 @@ _STORE_PRODUCTS_LIFECYCLE: list[tuple[str, dict[str, str]]] = [
     ("needs_review", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
     ("needs_review_reason", {"postgresql": "VARCHAR", "sqlite": "TEXT"}),  # nullable; why a draft is flagged
     ("vendor", {"postgresql": "VARCHAR", "sqlite": "TEXT"}),  # nullable; store vendor/supplier tag
+    # Dashboard contract: live product no longer in supplier catalog (missing-at-source view).
+    ("missing_at_source", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
 ]
 
 

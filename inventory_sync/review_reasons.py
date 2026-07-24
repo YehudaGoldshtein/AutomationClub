@@ -15,29 +15,12 @@ SUPPLIER_FLAG = "supplier_flag"  # the supplier feed itself flagged it
 MULTI_VARIANT = "multi_variant"  # source product has 2+ variations sharing one SKU;
                                  # onboarded single-variant on the parent SKU — owner
                                  # should reconcile against any hand-split store versions
-MISSING_AT_SOURCE = "missing_at_source"  # a store product that is no longer in the
-                                         # supplier's catalog (supplier removed it) —
-                                         # flag for review, never auto-delete (PRD-snir §1/§3)
+# NOTE: "missing at source" (a live product dropped from the supplier catalog) is NOT
+# a needs_review_reason code — it's the dedicated `store_products.missing_at_source`
+# boolean the dashboard filters on. See SqlStoreProductStore.flag_missing_at_source.
 
 
 def join(*reasons: str | None) -> str | None:
     """Comma-join the active reason codes; None when nothing needs review."""
     active = [r for r in reasons if r]
     return ",".join(active) or None
-
-
-def _split(reason: str | None) -> list[str]:
-    return [c for c in (reason or "").split(",") if c]
-
-
-def add(reason: str | None, code: str) -> str | None:
-    """Add `code` to a comma-joined reason string (no duplicates)."""
-    codes = _split(reason)
-    if code not in codes:
-        codes.append(code)
-    return ",".join(codes) or None
-
-
-def without(reason: str | None, code: str) -> str | None:
-    """Remove `code` from a comma-joined reason string; None if nothing remains."""
-    return ",".join(c for c in _split(reason) if c != code) or None

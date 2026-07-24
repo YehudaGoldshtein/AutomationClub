@@ -51,6 +51,7 @@ class StoreProductRecord:
     is_new_collection: bool
     needs_review: bool
     needs_review_reason: str | None
+    missing_at_source: bool
     updated_at: datetime
 
 
@@ -234,12 +235,11 @@ class SqlStoreProductStore:
                                published: bool = True) -> None:
         """Flag a store product that's no longer in the supplier catalog (review, never delete).
 
-        Adds the MISSING_AT_SOURCE code to needs_review_reason. If the product isn't
-        tracked yet (a manual product we never onboarded), insert a row for it so the
-        dashboard can surface it — status reflects whether it's live (`published`).
-        Idempotent; preserves any other review reasons + the existing status/approval.
+        Sets the `missing_at_source` boolean the dashboard filters on. If the product
+        isn't tracked yet (a manual product we never onboarded), insert a row for it so
+        the dashboard can surface it — status reflects whether it's live (`published`).
+        Idempotent; preserves the existing status/approval on a re-flag.
         """
-        from inventory_sync import review_reasons
         now = datetime.now(timezone.utc)
         rec = self.get(customer_id, sku)
         if rec is None:
@@ -250,31 +250,24 @@ class SqlStoreProductStore:
                 "handle": None, "title": title, "vendor": vendor,
                 "status": status, "approved": status == "active",
                 "approved_at": now if status == "active" else None,
-                "is_new_collection": False, "needs_review": True,
-                "needs_review_reason": review_reasons.MISSING_AT_SOURCE, "updated_at": now,
+                "is_new_collection": False, "needs_review": False,
+                "needs_review_reason": None, "missing_at_source": True, "updated_at": now,
             })
             with Session(self.engine) as session:
                 with session.begin():
                     session.execute(stmt)
         else:
-            reason = review_reasons.add(rec.needs_review_reason, review_reasons.MISSING_AT_SOURCE)
-            self._update_by_sku(customer_id, sku,
-                                {"needs_review": True, "needs_review_reason": reason, "updated_at": now})
+            self._update_by_sku(customer_id, sku, {"missing_at_source": True, "updated_at": now})
         self.logger.info("store_product_flagged_missing", customer_id=customer_id, sku=sku,
                          store_product_id=store_product_id)
 
     def clear_missing_at_source(self, customer_id: str, sku: str) -> None:
-        """Remove the MISSING_AT_SOURCE flag (product is back in the catalog). No-op if absent."""
-        from inventory_sync import review_reasons
+        """Clear the missing_at_source flag (product is back in the catalog). No-op if absent/unset."""
         rec = self.get(customer_id, sku)
-        if rec is None or not rec.needs_review_reason:
+        if rec is None or not rec.missing_at_source:
             return
-        if review_reasons.MISSING_AT_SOURCE not in rec.needs_review_reason.split(","):
-            return
-        reason = review_reasons.without(rec.needs_review_reason, review_reasons.MISSING_AT_SOURCE)
-        self._update_by_sku(customer_id, sku, {"needs_review": reason is not None,
-                                               "needs_review_reason": reason,
-                                               "updated_at": datetime.now(timezone.utc)})
+        self._update_by_sku(customer_id, sku,
+                            {"missing_at_source": False, "updated_at": datetime.now(timezone.utc)})
         self.logger.info("store_product_missing_cleared", customer_id=customer_id, sku=sku)
 
     def _update_by_sku(self, customer_id: str, sku: str, values: dict) -> None:
@@ -316,5 +309,6 @@ def _to_record(row) -> StoreProductRecord:
         is_new_collection=bool(row["is_new_collection"]),
         needs_review=bool(row["needs_review"]),
         needs_review_reason=row["needs_review_reason"],
+        missing_at_source=bool(row["missing_at_source"]),
         updated_at=row["updated_at"],
     )

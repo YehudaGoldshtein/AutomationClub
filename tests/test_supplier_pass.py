@@ -190,7 +190,7 @@ class TestMissingAtSource:
         src = FakeSource([Item("KEEP-1")], owned=(SNIR,))   # catalog has KEEP-1 only
         s = unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG)
         assert s.flagged_missing == 1
-        assert ps.get(C, "GONE-1").needs_review_reason == "missing_at_source"
+        assert ps.get(C, "GONE-1").missing_at_source is True
         assert ps.get(C, "OTHER-1") is None                 # different vendor → untouched
 
     def test_clears_flag_when_back_in_catalog(self):
@@ -198,7 +198,7 @@ class TestMissingAtSource:
         ps.flag_missing_at_source(C, "BACK-1", "10", vendor=SNIR)
         src = FakeSource([Item("BACK-1")], owned=(SNIR,))   # now present again
         unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG)
-        assert ps.get(C, "BACK-1").needs_review_reason is None
+        assert ps.get(C, "BACK-1").missing_at_source is False
 
     def test_no_owned_vendors_means_no_flagging(self):
         store, ps = _stores([_owned_product("GONE-1", "10")])

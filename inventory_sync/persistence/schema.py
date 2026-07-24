@@ -169,6 +169,9 @@ store_products = Table(
     Column("is_new_collection", Boolean, nullable=False, server_default=text("0")),
     Column("needs_review", Boolean, nullable=False, server_default=text("0")),
     Column("needs_review_reason", String, nullable=True),  # why (review_reasons codes, comma-joined)
+    # Dashboard contract: a live store product no longer in the supplier catalog.
+    # The dashboard filters on this boolean for its "missing-at-source → delete" view.
+    Column("missing_at_source", Boolean, nullable=False, server_default=text("0")),
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))

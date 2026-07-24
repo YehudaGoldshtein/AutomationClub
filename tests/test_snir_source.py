@@ -47,6 +47,12 @@ class TestParseApiProduct:
         assert p.category_ids == (125, 138)
         assert p.image_urls == ("http://img/a.jpg", "http://img/b.jpg")
 
+    def test_type_and_variation_count(self):
+        # absent → safe defaults; present → captured from the list object.
+        assert parse_api_product(API).wc_type == "" and parse_api_product(API).variation_count == 0
+        p = parse_api_product({**API, "type": "variable", "variations": [{"id": 1}, {"id": 2}]})
+        assert p.wc_type == "variable" and p.variation_count == 2
+
     def test_missing_fields_are_safe(self):
         p = parse_api_product({"id": 1})
         assert p.sku == "" and p.price is None and p.category_ids == () and p.tabs == ()

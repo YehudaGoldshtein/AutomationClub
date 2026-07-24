@@ -24,6 +24,12 @@ dev = [
 postgres = [
     "psycopg[binary]>=3.2",
 ]
+# Snir's origin is WAF-protected; its adapter fetches through a headless browser
+# (inventory_sync/browser_fetch.py). Install with:
+#   pip install -e ".[browser]" && python -m playwright install chromium
+browser = [
+    "playwright>=1.51",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

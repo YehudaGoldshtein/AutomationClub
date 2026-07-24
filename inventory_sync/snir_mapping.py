@@ -95,6 +95,20 @@ def is_importable(product: SnirProduct) -> bool:
     return route(product.category_ids) is not None
 
 
+def shares_variant_sku(product: SnirProduct) -> bool:
+    """True when a product has 2+ variations that reuse ONE SKU (no unique SKU
+    per variant). These are still onboarded — as a single-variant draft on the
+    parent SKU ("add the first variant, skip the additional", owner decision) —
+    but this flags them so the ingest (Phase 3) can mark needs_review, since the
+    variations' size/color/price detail is dropped.
+
+    Verified live (2026-07-24, snir_scrape/variations.json): 12/12 multi-variation
+    Snir products share a single parent SKU — the source assigns NO per-variation
+    SKUs — so "2+ variations" is exactly the shared-SKU set. If Snir ever adds
+    real per-variation SKUs, this must switch to checking the variation SKUs."""
+    return product.wc_type == "variable" and product.variation_count >= 2
+
+
 def decode_entities(text: str) -> str:
     return _html.unescape(text or "").strip()
 

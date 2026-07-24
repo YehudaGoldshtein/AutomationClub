@@ -7,9 +7,18 @@
 ## TL;DR
 
 The **mapping is fully locked and validated** against live data (292 SKU'd / 271
-in-scope / 21 ignored; 221 in-stock create-now / 50 OOS deferred). The **pure code
-is built, tested, and committed** (Phase 0-1). The build **paused at the adapter
-(Phase 2)** because two things surfaced that need decisions:
+in-scope / 21 ignored; 221 in-stock create-now / 50 OOS deferred). Pure code
+(Phase 0-1) **and now the Phase 2 adapter + Playwright fetch engine** are built,
+tested, and green. Remaining: Phase 3 ingest + Phase 4-5 CLI/workflows.
+
+**Decision A is RESOLVED → Playwright** (`browser_fetch.PlaywrightClient`). Live
+recon (2026-07-24, via a real browser) re-confirmed: one navigate solves the WAF,
+after which same-origin `fetch()` returns clean JSON + product HTML. ⚠️ Correction
+to the note below: **`x-robots-tag: noindex` is NOT a challenge signal** — it is
+present on *valid* JSON responses too. The reliable signal is `content-type:
+text/html` (+ challenge script markers) where JSON was expected.
+
+Two challenges originally surfaced here (Decision B still open for Phase 3):
 
 1. **The anti-bot WAF is real and rate/behavior-gated** — it triggered mid-recon.
 2. **Variable products share one SKU** across variations — "product per size" isn't
@@ -36,11 +45,52 @@ Code landed:
 
 Cross-supplier rule saved to memory: `oos-not-onboarded-rule` (Laura exempt).
 
-## What's NOT done (remaining phases)
+## Phase 2 — DONE (built this session, not yet committed)
 
-- **Phase 2** — `adapters/snir_baby.py` (Store API fetch + tab scrape + fetch_snapshots). **Blocked on the fetch-strategy decision below.**
-- **Phase 3** — `snir_ingest.py` (dedup / skip-existing / OOS-skip / create / record, error-isolated + dry-run). Mirror `segal_ingest` (which now has the OOS gate).
-- **Phase 4-5** — `snir-ingest` + `snir-sync` CLI subcommands + GH workflows; reuse `reconcile` for approve/ignore.
+- `inventory_sync/browser_fetch.py` — **`PlaywrightClient`**: duck-types the
+  `httpx.Client.get(url, params=)` slice adapters use (returns `BrowserResponse`
+  with `.status_code`/`.text`/`.json()`). Solves the WAF once on `open()`, then
+  same-origin `fetch()` per GET, with rate-limit (`min_interval`), exponential
+  backoff, and challenge-detect/re-solve/retry. Optional `browser` extra in
+  pyproject (`pip install -e ".[browser]" && python -m playwright install chromium`).
+- `inventory_sync/adapters/snir_baby.py` — **`SnirStoreApiAdapter`** (mirrors
+  `segal_baby`): `list_products` (paginate all), `fetch_tabs`, `fetch_products`
+  (only GETs pages for in-scope = importable + SKU'd, to spare the WAF),
+  `fetch_all`, `fetch_snapshots` (binary stock, no tab fetch). Transport-agnostic.
+- `tests/test_snir_adapter.py` — 15 tests via `httpx.MockTransport` (no browser),
+  incl. challenge/non-JSON handling + `BrowserResponse.is_challenge` surface.
+  Full suite green: **593 passed.**
+- ✅ **Dry run verified end-to-end against live Snir** (2026-07-24, `snir_dry_run.py`,
+  headless): `PlaywrightClient` solved the WAF from Python, listed 342 products,
+  scoped to 291 SKU'd / **270 in-scope** / 220 in-stock / 50 OOS (spec 292/271/221/50
+  — off by ≤1 from catalog drift), scraped `tech_details` tabs, and mapped a sample
+  cleanly (routing precedence + template split + collections + metafields all correct).
+  ✅ **Full-volume run** (2026-07-24): all 270 in-scope mapped, 0 errors, **0 WAF
+  challenges** across ~290 fetches, 412s (~7min), 3 non-200 tab pages (graceful), 29
+  with no tech tab (valid per PRD §8). Still untested from a GHA datacenter IP —
+  watch for a harder challenge there.
+- SKU uniqueness verified: 291 SKU'd → 291 distinct; 270 in-scope → 270 distinct (0 dupes).
+
+## Phase 3 — DONE (unified pass, this session, not yet committed)
+
+Owner decision: **catalog + stock sync unified** (not a separate ingest). Built as a
+`UnifiedSource` binding on the existing `supplier_pass.unified_pass` engine (same as
+Segal/Bambino), so one pass lists the catalog once, stock-syncs existing products, and
+onboards new ones — the expensive tab scrape runs only for genuinely-new products.
+- `inventory_sync/snir_pass.py` — **`SnirUnifiedSource`** (mirrors `segal_pass`).
+- **OOS gate**: enforced by `unified_pass` (a new product OOS at source is not onboarded).
+- **Decision B**: multi-variation shared-SKU products are onboarded single-variant on the
+  parent SKU and flagged `MULTI_VARIANT` (new `review_reasons` code) for owner reconcile.
+- **Scan dedup**: `list_catalog` first-SKU-wins; SKU-less products dropped.
+- CLI: **`snir-pass`** subcommand (`--dry-run`, `--headed`) in `__main__.py`, managing the
+  PlaywrightClient lifecycle. `tests/test_snir_pass.py` (7). Full suite: **605 passed.**
+
+## What's NOT done (remaining)
+
+- **Phase 4-5** — GH workflow(s) for `snir-pass` (cron every few hours), like `segal-pass.yml`.
+  Reuse `reconcile` for approve/activate (already cross-supplier). Decide runner: GHA
+  datacenter IP may need a harder-challenge fallback (self-hosted runner / proxy) — test first.
+- Live `snir-pass --dry-run` end-to-end (needs Shopify creds; the Snir-only path is verified).
 
 ## ⚠️ Challenge 1 — the WAF (blocking the adapter design)
 
@@ -89,13 +139,20 @@ single products; `2345654321` was split by color into `2345654321` + `-1` (with 
 *third* suffix `-2` as the source parent); `567887654321234567-1` is a *different*
 mattress, not a size. **No algorithmic rule reproduces the owner's hand-suffixing.**
 
-### Open decision B — variable product handling
-- **Recommended:** one draft per **source parent SKU** (parent price), single-variant,
-  **`needs_review=True`** so the owner reconciles against any hand-split store versions
-  before activation. Deterministic; avoids inventing SKUs and dodges price=0.
-- Alternative the owner floated: synthesize suffixed SKUs per size — but it's not
-  derivable from source data and risks duplicating existing hand-split products.
-- Note: 3 of the 9 already exist (skip-existing handles them). Only ~6 are net-new.
+Re-verified live 2026-07-24 (`snir_scrape/variations.json`): **12 products have 2+
+variations; ALL 12 share one SKU, 0 have per-variation SKUs.** 9 of the 12 have a real
+parent SKU; the other 3 have an **empty** SKU. 2 have a zero-price variation.
+
+### Decision B — RESOLVED (owner, 2026-07-24)
+- **Onboard as single-variant on the parent SKU** (parent price) — "add the first
+  variant, skip the additional". No whole-product skip. Dodges price=0 and invents no SKUs.
+- **Skip products with no SKU** (the 3 empty-SKU variable products drop out here).
+- **Scan dedup:** first product to claim a SKU wins; a later product whose SKU is already
+  taken is skipped (product-level, in the adapter). Store-side skip-existing = Phase 3.
+- `snir_mapping.shares_variant_sku` flags these (variable + 2+ variations) so Phase 3
+  ingest can set **`needs_review`**. `SnirProduct` now has `wc_type` + `variation_count`.
+- Implemented + tested in `adapters/snir_baby.py`, `snir_mapping.py`, `snir_source.py`
+  (full suite 598 passed).
 
 ## Other decisions still open (from MAPPING §7, minor)
 

@@ -47,6 +47,8 @@ class SnirProduct:
     category_ids: tuple[int, ...]
     permalink: str
     tabs: tuple[SnirTab, ...] = ()
+    wc_type: str = ""          # WooCommerce product type: "simple" | "variable"
+    variation_count: int = 0   # number of variations (from the Store API list object)
 
 
 def _price(raw, minor_unit: int) -> Decimal | None:
@@ -81,6 +83,8 @@ def parse_api_product(data: dict, tabs: tuple[SnirTab, ...] = ()) -> SnirProduct
         ),
         permalink=str(data.get("permalink") or ""),
         tabs=tabs,
+        wc_type=str(data.get("type") or ""),
+        variation_count=len(data.get("variations") or []),
     )
 
 

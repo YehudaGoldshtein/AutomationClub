@@ -1,0 +1,88 @@
+name: snir-pass
+
+# Unified Snir pass: stock-sync existing products AND onboard new in-stock ones
+# as drafts, in one run (mirrors segal-pass). New products are drafts
+# (approval-gated); a notification fires when any appear.
+#
+# Snir sits behind an anti-bot WAF, so all fetching runs through a headless
+# Chromium (inventory_sync/browser_fetch.PlaywrightClient) that solves the
+# JS-challenge once. That is why this workflow installs the `browser` extra and
+# a Chromium binary, unlike the plain-HTTP supplier workflows.
+#
+# ⚠️ SCHEDULE IS INTENTIONALLY DISABLED. A GitHub-hosted (datacenter) IP may draw
+# a *harder* WAF challenge (CAPTCHA / headless fingerprinting) than a residential
+# IP — unverified. Run this MANUALLY (dry-run) first and confirm it lists the
+# catalog and drafts cleanly from a GHA runner. Only then uncomment the schedule
+# below. If GHA is hard-blocked, fall back to a self-hosted runner / proxy.
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Tenant'
+        type: string
+        required: true
+        default: 'maxbaby'
+      dry_run:
+        description: 'Plan changes but write nothing'
+        type: boolean
+        default: true
+      headed:
+        description: 'Run the browser headed (debugging only; needs a display — leave off on CI)'
+        type: boolean
+        default: false
+  # schedule:
+  #   # Enable ONLY after a manual dry-run proves GHA is not WAF-blocked.
+  #   - cron: '35 */6 * * *'   # every 6h, offset from other suppliers' syncs
+
+# Never let two passes overlap (avoids a dedup race double-creating new products).
+concurrency:
+  group: snir-pass-${{ github.event.inputs.customer_id || 'maxbaby' }}
+  cancel-in-progress: false
+
+jobs:
+  snir-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install (with the browser extra)
+        run: pip install -e ".[postgres,browser]"
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+      - name: Snir unified pass
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Notifications (new-draft alert) — reuse the same transports as sync
+          WHATSAPP_API_BASE_URL: ${{ vars.WHATSAPP_API_BASE_URL }}
+          WHATSAPP_API_TOKEN: ${{ secrets.WHATSAPP_API_TOKEN }}
+          EMAIL_API_KEY: ${{ secrets.EMAIL_API_KEY }}
+          AXIOM_API_URL: ${{ vars.AXIOM_API_URL }}
+          AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
+          AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
+        run: |
+          # Manual dispatch honors dry_run (default true). If the schedule is
+          # ever enabled, scheduled runs have no inputs -> default to LIVE.
+          CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
+          ARGS="snir-pass --customer-id $CUSTOMER_ID"
+          # On a schedule, ${{ inputs.dry_run }} is empty -> live. On manual, honor it.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" != "false" ]]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [[ "${{ inputs.headed }}" == "true" ]]; then
+            ARGS="$ARGS --headed"
+          fi
+          python -m inventory_sync $ARGS

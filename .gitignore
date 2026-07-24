@@ -27,3 +27,9 @@ venv/
 # Runtime cleanup / ingest artifacts
 draft_ids.json
 .bambinotmp/
+
+# Snir throwaway research scripts + scraped data (not part of the package)
+snir_dry_run.py
+snir_sku_check.py
+snir_scrape_variations.py
+snir_scrape/

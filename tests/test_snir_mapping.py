@@ -13,6 +13,7 @@ from inventory_sync.snir_mapping import (
     is_importable,
     is_studio_boutique,
     route,
+    shares_variant_sku,
     to_product_draft,
 )
 from inventory_sync.snir_source import SnirProduct, SnirTab
@@ -28,6 +29,22 @@ def _p(category_ids=(126,), name="מיטת תינוק רוני", sku="bed-1",
         price=price, in_stock=in_stock, image_urls=images,
         category_ids=tuple(category_ids), permalink=f"http://snir/p/{sku}/", tabs=tabs,
     )
+
+
+class TestSharesVariantSku:
+    def test_variable_with_2plus_variations_is_flagged(self):
+        p = SnirProduct(
+            sku="var-1", name="x", short_description_html="", description_html="",
+            price=Decimal("100"), in_stock=True, image_urls=(), category_ids=(126,),
+            permalink="", wc_type="variable", variation_count=3)
+        assert shares_variant_sku(p) is True
+
+    def test_single_variation_and_simple_are_not_flagged(self):
+        base = dict(sku="s", name="x", short_description_html="", description_html="",
+                    price=Decimal("100"), in_stock=True, image_urls=(), category_ids=(126,),
+                    permalink="")
+        assert shares_variant_sku(SnirProduct(**base, wc_type="variable", variation_count=1)) is False
+        assert shares_variant_sku(SnirProduct(**base, wc_type="simple", variation_count=0)) is False
 
 
 class TestRouting:

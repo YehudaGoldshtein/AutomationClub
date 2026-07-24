@@ -12,6 +12,9 @@ IMAGE_REJECTED = "image_rejected"  # had images but the store rejected them (cre
 NO_COLLECTION = "no_collection"  # no category collection mapped
 NO_BODY = "no_body"              # no description/body text
 SUPPLIER_FLAG = "supplier_flag"  # the supplier feed itself flagged it
+MULTI_VARIANT = "multi_variant"  # source product has 2+ variations sharing one SKU;
+                                 # onboarded single-variant on the parent SKU — owner
+                                 # should reconcile against any hand-split store versions
 
 
 def join(*reasons: str | None) -> str | None:

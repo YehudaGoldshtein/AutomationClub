@@ -40,6 +40,9 @@ from inventory_sync.bambino_ingest import ingest_bambino
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.segal_pass import SegalUnifiedSource
+from inventory_sync.snir_pass import SnirUnifiedSource
+from inventory_sync.adapters.snir_baby import SnirStoreApiAdapter
+from inventory_sync.browser_fetch import PlaywrightClient  # playwright imported lazily on open()
 from inventory_sync.supplier_pass import unified_pass
 from inventory_sync.log import Logger, configure
 from inventory_sync.reconcile import reconcile_approved_drafts, reconcile_rejected_drafts
@@ -402,6 +405,47 @@ def cmd_segal_pass(args, log: Logger, cfg: Config) -> int:
 
     print(
         f"segal-pass: items_checked={summary.items_checked} "
+        f"stock_applied={summary.stock_changes_applied} stock_errors={summary.stock_errors} "
+        f"created={summary.created} skipped_oos={summary.skipped_oos} "
+        f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
+        f"would_create={summary.would_create} dry_run={summary.dry_run}"
+    )
+    return 1 if (summary.stock_errors or summary.create_errors) else 0
+
+
+def cmd_snir_pass(args, log: Logger, cfg: Config) -> int:
+    """Unified Snir pass: stock-sync existing products + onboard new ones, one run.
+
+    Snir sits behind a WAF, so all fetching runs through a headless browser
+    (PlaywrightClient) that solves the JS-challenge once and serves same-origin
+    GETs. The catalog is listed once; existing products are stock-synced, new
+    in-stock in-scope products are tab-scraped + drafted (approval-gated). The
+    cross-supplier OOS gate (skip new out-of-stock products) is enforced by
+    unified_pass. Requires the `browser` extra + `playwright install chromium`.
+    """
+    log = log.bind(customer_id=args.customer_id)
+    log.info("snir_pass_command_start", dry_run=args.dry_run, headed=args.headed)
+
+    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=None)  # all products to detect new
+    store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
+    product_store = _build_store_product_store(cfg, log)
+
+    def _notify_new(skus: list[str]) -> None:
+        log.info("snir_pass_new_drafts", count=len(skus), skus=skus[:50])
+        try:
+            body = (f"{len(skus)} new Snir products drafted (pending approval):\n"
+                    + ", ".join(skus[:30]) + ("" if len(skus) <= 30 else f" … +{len(skus)-30} more"))
+            _build_notifier(cfg, log).dispatch(EVENT_SYNC_SUMMARY, "Snir: new draft products", body)
+        except Exception:
+            log.warning("snir_pass_notify_failed")
+
+    with PlaywrightClient(headless=not args.headed, logger=log) as client:
+        source = SnirUnifiedSource(adapter=SnirStoreApiAdapter(client=client, logger=log), logger=log)
+        summary = unified_pass(source, store, product_store, DefaultStockPolicy(), args.customer_id, log,
+                               dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new)
+
+    print(
+        f"snir-pass: items_checked={summary.items_checked} "
         f"stock_applied={summary.stock_changes_applied} stock_errors={summary.stock_errors} "
         f"created={summary.created} skipped_oos={summary.skipped_oos} "
         f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
@@ -789,6 +833,16 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--dry-run", action="store_true",
                     help="Plan stock changes + report new products, but write nothing")
 
+    snp = sub.add_parser(
+        "snir-pass",
+        help="Unified Snir pass (via headless browser): stock-sync existing + onboard new drafts",
+    )
+    snp.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
+    snp.add_argument("--dry-run", action="store_true",
+                     help="Plan stock changes + report new products, but write nothing")
+    snp.add_argument("--headed", action="store_true",
+                     help="Run the browser headed (debugging; default headless)")
+
     rec = sub.add_parser(
         "reconcile",
         help="Activate approved draft products (draft → active)",
@@ -816,6 +870,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_segal_sync(args, log, cfg)
     if command == "segal-pass":
         return cmd_segal_pass(args, log, cfg)
+    if command == "snir-pass":
+        return cmd_snir_pass(args, log, cfg)
     if command == "bambino-ingest":
         return cmd_bambino_ingest(args, log, cfg)
     if command == "bambino-sync":

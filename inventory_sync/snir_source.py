@@ -74,7 +74,11 @@ def parse_api_product(data: dict, tabs: tuple[SnirTab, ...] = ()) -> SnirProduct
         short_description_html=str(data.get("short_description") or ""),
         description_html=str(data.get("description") or ""),
         price=_price(prices.get("regular_price"), minor_unit),
-        in_stock=bool(data.get("is_in_stock")),
+        # A product on backorder is orderable (`is_in_stock=true`) but not
+        # actually in stock — Snir uses backorder for "back in stock <month>"
+        # items (e.g. mit-0001-1, "צפי חזרה למלאי סוף אוקטובר"). Treat backorder
+        # as OUT of stock so the OOS gate skips it and stock sync zeros it.
+        in_stock=bool(data.get("is_in_stock")) and not bool(data.get("is_on_backorder")),
         image_urls=tuple(
             img["src"] for img in (data.get("images") or []) if img.get("src")
         ),

@@ -42,6 +42,16 @@ class TestParseApiProduct:
         assert parse_api_product(API).in_stock is True
         assert parse_api_product({**API, "is_in_stock": False}).in_stock is False
 
+    def test_backorder_counts_as_out_of_stock(self):
+        # Snir marks restock-pending items is_in_stock=true + is_on_backorder=true
+        # (e.g. "צפי חזרה למלאי סוף אוקטובר"). Backorder must read as NOT in stock,
+        # so the OOS gate skips onboarding and stock sync zeros it.
+        data = {**API, "is_in_stock": True, "is_on_backorder": True}
+        assert parse_api_product(data).in_stock is False
+        # genuinely in stock (default / explicit false) stays available
+        assert parse_api_product({**API, "is_on_backorder": False}).in_stock is True
+        assert parse_api_product(API).in_stock is True  # field absent → available
+
     def test_category_ids_and_images(self):
         p = parse_api_product(API)
         assert p.category_ids == (125, 138)

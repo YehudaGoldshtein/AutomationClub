@@ -108,6 +108,56 @@ class TestNonClobberInvariant:
         assert rec.title == "New Title"
 
 
+class TestMissingAtSource:
+    """Flagging existing store products that vanished from the supplier source."""
+
+    def test_flag_inserts_tracking_row_when_absent(self, store):
+        # An existing store product we never onboarded (no row yet) → insert one, flagged.
+        store.flag_missing_at_source(C, sku="X-1", store_product_id="700",
+                                     title="t", vendor="שניר | snir", published=True)
+        rec = store.get(C, "X-1")
+        assert rec is not None
+        assert rec.needs_review is True
+        assert rec.needs_review_reason == "missing_at_source"
+        assert rec.status == "active"      # it is live in the store
+        assert rec.vendor == "שניר | snir"
+
+    def test_flag_appends_reason_without_clobbering_existing(self, store):
+        store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
+                                         needs_review_reason="no_image")])
+        store.flag_missing_at_source(C, sku="D-1", store_product_id="901")
+        rec = store.get(C, "D-1")
+        assert rec.needs_review_reason == "no_image,missing_at_source"
+        assert rec.status == "draft"       # existing row's status is NOT reset
+
+    def test_flag_is_idempotent(self, store):
+        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
+        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
+        assert store.get(C, "X-1").needs_review_reason == "missing_at_source"
+
+    def test_clear_removes_only_that_reason(self, store):
+        store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
+                                         needs_review_reason="no_image")])
+        store.flag_missing_at_source(C, sku="D-1", store_product_id="901")
+        store.clear_missing_at_source(C, "D-1")
+        rec = store.get(C, "D-1")
+        assert rec.needs_review_reason == "no_image"
+        assert rec.needs_review is True    # still flagged for the other reason
+
+    def test_clear_last_reason_unflags(self, store):
+        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
+        store.clear_missing_at_source(C, "X-1")
+        rec = store.get(C, "X-1")
+        assert rec.needs_review_reason is None
+        assert rec.needs_review is False
+
+    def test_clear_on_unknown_or_unflagged_is_noop(self, store):
+        store.clear_missing_at_source(C, "NOPE")            # no row → no error
+        store.write_pending(C, [_pending("D-2", pid="902")])
+        store.clear_missing_at_source(C, "D-2")             # not flagged → unchanged
+        assert store.get(C, "D-2").needs_review is False
+
+
 class TestListPending:
     def test_lists_only_unapproved_drafts(self, store):
         store.write_pending(C, [_pending("D-1", pid="901"), _pending("D-2", pid="902")])

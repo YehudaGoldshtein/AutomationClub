@@ -16,6 +16,7 @@ from inventory_sync.domain import ProductDraft, VendorProductSnapshot
 from inventory_sync.log import Logger, get
 from inventory_sync.segal_mapping import (
     INGEST_CATEGORIES,
+    VENDOR,
     collections_for,
     matched_category,
     to_product_draft,
@@ -71,3 +72,6 @@ class SegalUnifiedSource:
 
     def link_new(self, created, store, logger) -> int:
         return 0  # Segal has no color-sibling linking (unlike Bambino)
+
+    def owned_vendors(self) -> tuple[str, ...]:
+        return (VENDOR,)  # flag Segal store products that vanish from Segal's catalog

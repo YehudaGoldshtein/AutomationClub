@@ -47,6 +47,8 @@ class UnifiedSource(Protocol):
     def collections_for(self, item) -> tuple[str, ...]: ...
     def needs_review_reason(self, item, draft: ProductDraft) -> str | None: ...  # review_reasons code or None
     def link_new(self, created: list[tuple[object, str]], store, logger) -> int: ...
+    def owned_vendors(self) -> tuple[str, ...]: ...  # store vendor tags this supplier owns
+                                                     # (enables missing-at-source flagging)
 
 
 @dataclass
@@ -62,6 +64,7 @@ class UnifiedPassSummary:
     linked: int = 0
     create_errors: int = 0
     would_create: int = 0
+    flagged_missing: int = 0   # existing store products no longer in the supplier catalog
     dry_run: bool = False
     new_skus: list[str] = field(default_factory=list)
 
@@ -142,6 +145,27 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
     summary.stock_changes_applied = len(run.changes_applied)
     summary.stock_errors = len(run.errors)
 
+    # --- 1b. flag store products that vanished from the supplier catalog ---
+    # Scoped to this supplier's own vendor tags so a Snir pass never flags a
+    # Laura/Segal/manual product. Flag-only (never unpublish/delete); the flag is
+    # cleared when the product reappears. PRD-snir §1/§3.
+    owned = set(getattr(source, "owned_vendors", lambda: ())())
+    if owned:
+        for p in store_products:
+            if p.vendor not in owned:
+                continue
+            if str(p.sku) in listed_skus:
+                if not dry_run:
+                    product_store.clear_missing_at_source(customer_id, str(p.sku))
+            else:
+                summary.flagged_missing += 1
+                logger.info("unified_pass_missing_at_source", sku=str(p.sku),
+                            vendor=p.vendor, store_product_id=p.store_product_id)
+                if not dry_run:
+                    product_store.flag_missing_at_source(
+                        customer_id, str(p.sku), p.store_product_id,
+                        title=p.title, vendor=p.vendor, published=p.published)
+
     # --- 2. onboard new products (not yet in the store) ---
     created: list[tuple[object, str]] = []
     seen: set[str] = set()
@@ -185,5 +209,6 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
                 skipped_oos=summary.skipped_oos,
                 skipped_uncategorized=summary.skipped_uncategorized,
                 linked=summary.linked, create_errors=summary.create_errors,
-                would_create=summary.would_create, dry_run=dry_run)
+                would_create=summary.would_create, flagged_missing=summary.flagged_missing,
+                dry_run=dry_run)
     return summary

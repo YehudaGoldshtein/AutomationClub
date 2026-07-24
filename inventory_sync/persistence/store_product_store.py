@@ -229,6 +229,66 @@ class SqlStoreProductStore:
                 )
         self.logger.info("store_products_deleted", customer_id=customer_id, store_product_id=store_product_id)
 
+    def flag_missing_at_source(self, customer_id: str, sku: str, store_product_id: str,
+                               title: str | None = None, vendor: str | None = None,
+                               published: bool = True) -> None:
+        """Flag a store product that's no longer in the supplier catalog (review, never delete).
+
+        Adds the MISSING_AT_SOURCE code to needs_review_reason. If the product isn't
+        tracked yet (a manual product we never onboarded), insert a row for it so the
+        dashboard can surface it — status reflects whether it's live (`published`).
+        Idempotent; preserves any other review reasons + the existing status/approval.
+        """
+        from inventory_sync import review_reasons
+        now = datetime.now(timezone.utc)
+        rec = self.get(customer_id, sku)
+        if rec is None:
+            status = "active" if published else "draft"
+            insert = pg_insert if self.engine.dialect.name == "postgresql" else sqlite_insert
+            stmt = insert(store_products).values({
+                "customer_id": customer_id, "sku": sku, "store_product_id": store_product_id,
+                "handle": None, "title": title, "vendor": vendor,
+                "status": status, "approved": status == "active",
+                "approved_at": now if status == "active" else None,
+                "is_new_collection": False, "needs_review": True,
+                "needs_review_reason": review_reasons.MISSING_AT_SOURCE, "updated_at": now,
+            })
+            with Session(self.engine) as session:
+                with session.begin():
+                    session.execute(stmt)
+        else:
+            reason = review_reasons.add(rec.needs_review_reason, review_reasons.MISSING_AT_SOURCE)
+            self._update_by_sku(customer_id, sku,
+                                {"needs_review": True, "needs_review_reason": reason, "updated_at": now})
+        self.logger.info("store_product_flagged_missing", customer_id=customer_id, sku=sku,
+                         store_product_id=store_product_id)
+
+    def clear_missing_at_source(self, customer_id: str, sku: str) -> None:
+        """Remove the MISSING_AT_SOURCE flag (product is back in the catalog). No-op if absent."""
+        from inventory_sync import review_reasons
+        rec = self.get(customer_id, sku)
+        if rec is None or not rec.needs_review_reason:
+            return
+        if review_reasons.MISSING_AT_SOURCE not in rec.needs_review_reason.split(","):
+            return
+        reason = review_reasons.without(rec.needs_review_reason, review_reasons.MISSING_AT_SOURCE)
+        self._update_by_sku(customer_id, sku, {"needs_review": reason is not None,
+                                               "needs_review_reason": reason,
+                                               "updated_at": datetime.now(timezone.utc)})
+        self.logger.info("store_product_missing_cleared", customer_id=customer_id, sku=sku)
+
+    def _update_by_sku(self, customer_id: str, sku: str, values: dict) -> None:
+        with Session(self.engine) as session:
+            with session.begin():
+                session.execute(
+                    update(store_products)
+                    .where(
+                        store_products.c.customer_id == customer_id,
+                        store_products.c.sku == sku,
+                    )
+                    .values(**values)
+                )
+
     def _update_product(self, customer_id: str, store_product_id: str, values: dict) -> None:
         with Session(self.engine) as session:
             with session.begin():

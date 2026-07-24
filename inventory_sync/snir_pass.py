@@ -25,6 +25,7 @@ from inventory_sync.adapters.snir_baby import SnirStoreApiAdapter, _to_snapshot
 from inventory_sync.domain import ProductDraft, VendorProductSnapshot
 from inventory_sync.log import Logger, get
 from inventory_sync.snir_mapping import (
+    VENDOR,
     collections_for,
     is_importable,
     shares_variant_sku,
@@ -85,3 +86,6 @@ class SnirUnifiedSource:
 
     def link_new(self, created, store, logger) -> int:
         return 0  # Snir has no color-sibling linking (unlike Bambino)
+
+    def owned_vendors(self) -> tuple[str, ...]:
+        return (VENDOR,)  # flag Snir store products that vanish from Snir's catalog

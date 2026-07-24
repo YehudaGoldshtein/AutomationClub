@@ -41,6 +41,10 @@ class FakeSource:
     items: list
     enriched: list = field(default_factory=list)   # SKUs that got expensive enrichment
     linked_calls: list = field(default_factory=list)
+    owned: tuple = ()                               # vendor tags this supplier owns
+
+    def owned_vendors(self):
+        return self.owned
 
     def list_catalog(self):
         return list(self.items)
@@ -166,6 +170,48 @@ class TestDryRun:
         assert s.would_create == 2 and s.created == 0
         assert store.list_products() == []
         assert ps.list_pending(C) == []
+
+
+SNIR = "שניר | snir"
+
+
+def _owned_product(sku, spid, vendor=SNIR, published=True):
+    return Product(sku=SKU(sku), vendor_product_id=VendorProductId(sku),
+                   stock=StockLevel(1), published=published, store_product_id=spid, vendor=vendor)
+
+
+class TestMissingAtSource:
+    """Existing store products that vanished from the supplier source get flagged."""
+
+    def test_flags_owned_product_absent_from_catalog(self):
+        existing = [_owned_product("GONE-1", "10"),
+                    _owned_product("OTHER-1", "11", vendor="laura | לורה")]
+        store, ps = _stores(existing)
+        src = FakeSource([Item("KEEP-1")], owned=(SNIR,))   # catalog has KEEP-1 only
+        s = unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG)
+        assert s.flagged_missing == 1
+        assert ps.get(C, "GONE-1").needs_review_reason == "missing_at_source"
+        assert ps.get(C, "OTHER-1") is None                 # different vendor → untouched
+
+    def test_clears_flag_when_back_in_catalog(self):
+        store, ps = _stores([_owned_product("BACK-1", "10")])
+        ps.flag_missing_at_source(C, "BACK-1", "10", vendor=SNIR)
+        src = FakeSource([Item("BACK-1")], owned=(SNIR,))   # now present again
+        unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG)
+        assert ps.get(C, "BACK-1").needs_review_reason is None
+
+    def test_no_owned_vendors_means_no_flagging(self):
+        store, ps = _stores([_owned_product("GONE-1", "10")])
+        s = _run([Item("KEEP-1")], store, ps)               # FakeSource.owned defaults ()
+        assert s.flagged_missing == 0
+        assert ps.get(C, "GONE-1") is None
+
+    def test_dry_run_counts_but_does_not_write(self):
+        store, ps = _stores([_owned_product("GONE-1", "10")])
+        src = FakeSource([Item("KEEP-1")], owned=(SNIR,))
+        s = unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG, dry_run=True)
+        assert s.flagged_missing == 1
+        assert ps.get(C, "GONE-1") is None                  # no write on dry run
 
 
 class TestErrorIsolation:

@@ -230,19 +230,19 @@ class SqlStoreProductStore:
                 )
         self.logger.info("store_products_deleted", customer_id=customer_id, store_product_id=store_product_id)
 
-    def flag_missing_at_source(self, customer_id: str, sku: str, store_product_id: str,
-                               title: str | None = None, vendor: str | None = None,
-                               published: bool = True) -> None:
-        """Flag a store product that's no longer in the supplier catalog (review, never delete).
+    def flag_missing_at_source(self, customer_id: str, store_product_id: str, *,
+                               sku: str | None = None, title: str | None = None,
+                               vendor: str | None = None, published: bool = True) -> None:
+        """Flag a whole store product (all its variant rows) as missing at source.
 
-        Sets the `missing_at_source` boolean the dashboard filters on. If the product
-        isn't tracked yet (a manual product we never onboarded), insert a row for it so
-        the dashboard can surface it — status reflects whether it's live (`published`).
-        Idempotent; preserves the existing status/approval on a re-flag.
+        Unified per product (store_product_id) — a multi-variant product is flagged
+        once, not per variant. If the product isn't tracked yet (a manual product we
+        never onboarded), insert a tracking row keyed by `sku` so the dashboard can
+        surface it. Flag-only (never delete); preserves status/approval/review reason.
         """
         now = datetime.now(timezone.utc)
-        rec = self.get(customer_id, sku)
-        if rec is None:
+        updated = self._set_missing_by_product(customer_id, store_product_id, True, now)
+        if updated == 0 and sku is not None:
             status = "active" if published else "draft"
             insert = pg_insert if self.engine.dialect.name == "postgresql" else sqlite_insert
             stmt = insert(store_products).values({
@@ -252,35 +252,38 @@ class SqlStoreProductStore:
                 "approved_at": now if status == "active" else None,
                 "is_new_collection": False, "needs_review": False,
                 "needs_review_reason": None, "missing_at_source": True, "updated_at": now,
-            })
+            }).on_conflict_do_update(
+                index_elements=[store_products.c.customer_id, store_products.c.sku],
+                set_={"missing_at_source": True, "updated_at": now},
+            )
             with Session(self.engine) as session:
                 with session.begin():
                     session.execute(stmt)
-        else:
-            self._update_by_sku(customer_id, sku, {"missing_at_source": True, "updated_at": now})
-        self.logger.info("store_product_flagged_missing", customer_id=customer_id, sku=sku,
+        self.logger.info("store_product_flagged_missing", customer_id=customer_id,
                          store_product_id=store_product_id)
 
-    def clear_missing_at_source(self, customer_id: str, sku: str) -> None:
-        """Clear the missing_at_source flag (product is back in the catalog). No-op if absent/unset."""
-        rec = self.get(customer_id, sku)
-        if rec is None or not rec.missing_at_source:
-            return
-        self._update_by_sku(customer_id, sku,
-                            {"missing_at_source": False, "updated_at": datetime.now(timezone.utc)})
-        self.logger.info("store_product_missing_cleared", customer_id=customer_id, sku=sku)
+    def clear_missing_at_source(self, customer_id: str, store_product_id: str) -> None:
+        """Clear the flag on all rows of a product (back in the catalog). No-op if none set."""
+        n = self._set_missing_by_product(customer_id, store_product_id, False,
+                                         datetime.now(timezone.utc), only_flagged=True)
+        if n:
+            self.logger.info("store_product_missing_cleared", customer_id=customer_id,
+                             store_product_id=store_product_id)
 
-    def _update_by_sku(self, customer_id: str, sku: str, values: dict) -> None:
+    def _set_missing_by_product(self, customer_id: str, store_product_id: str, value: bool,
+                                now: datetime, only_flagged: bool = False) -> int:
+        """Set missing_at_source on every row of a product; returns rows affected."""
+        stmt = update(store_products).where(
+            store_products.c.customer_id == customer_id,
+            store_products.c.store_product_id == store_product_id,
+        )
+        if only_flagged:
+            stmt = stmt.where(store_products.c.missing_at_source.is_(True))
+        stmt = stmt.values(missing_at_source=value, updated_at=now)
         with Session(self.engine) as session:
             with session.begin():
-                session.execute(
-                    update(store_products)
-                    .where(
-                        store_products.c.customer_id == customer_id,
-                        store_products.c.sku == sku,
-                    )
-                    .values(**values)
-                )
+                res = session.execute(stmt)
+        return res.rowcount or 0
 
     def _update_product(self, customer_id: str, store_product_id: str, values: dict) -> None:
         with Session(self.engine) as session:

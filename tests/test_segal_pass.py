@@ -40,6 +40,11 @@ class FakeSegalAdapter:
     def list_category_products(self, cat_id):
         return list(self.by_cat.get(cat_id, []))
 
+    def list_all_skus(self):
+        # full catalog = every sku across all category fixtures
+        return {str(p.get("sku")) for prods in self.by_cat.values()
+                for p in prods if p.get("sku")}
+
     def fetch_tabs(self, permalink):
         self.tab_calls.append(permalink)
         return (SegalTab("מידע כללי", "<p>כללי</p>"),

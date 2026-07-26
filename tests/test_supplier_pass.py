@@ -46,6 +46,10 @@ class FakeSource:
     def owned_vendors(self):
         return self.owned
 
+    def catalog_skus(self):
+        # full catalog = every item's sku (tests don't distinguish ingest subset)
+        return {it.sku for it in self.items if it.sku}
+
     def list_catalog(self):
         return list(self.items)
 
@@ -195,7 +199,7 @@ class TestMissingAtSource:
 
     def test_clears_flag_when_back_in_catalog(self):
         store, ps = _stores([_owned_product("BACK-1", "10")])
-        ps.flag_missing_at_source(C, "BACK-1", "10", vendor=SNIR)
+        ps.flag_missing_at_source(C, "10", sku="BACK-1", vendor=SNIR)
         src = FakeSource([Item("BACK-1")], owned=(SNIR,))   # now present again
         unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG)
         assert ps.get(C, "BACK-1").missing_at_source is False

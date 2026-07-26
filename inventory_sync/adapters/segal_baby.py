@@ -93,6 +93,41 @@ class SegalBabyStoreApiAdapter:
         self.logger.info("category_listed", category_id=category_id, count=len(out))
         return out
 
+    def list_all_skus(self) -> set[str]:
+        """All SKUs across the ENTIRE Segal catalog (every category) — for the
+        missing-at-source check, NOT the 6 ingest categories.
+
+        A store product absent from the ingest categories is NOT gone from Segal —
+        it may just live in a non-ingested category (e.g. 'rooms', sku 446). Only
+        absence from the *full* catalog means the supplier removed it.
+        """
+        skus: set[str] = set()
+        page = 1
+        while True:
+            try:
+                resp = self.client.get(
+                    f"{self.base_url}{_STORE_API}",
+                    params={"per_page": self.per_page, "page": page},  # no category = all
+                )
+            except Exception:
+                self.logger.exception("all_products_fetch_failed", page=page)
+                break
+            if resp.status_code != 200:
+                self.logger.warning("all_products_bad_status", page=page, status=resp.status_code)
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            for data in batch:
+                sku = str(data.get("sku") or "")
+                if sku:
+                    skus.add(sku)
+            if len(batch) < self.per_page:
+                break
+            page += 1
+        self.logger.info("segal_all_skus", count=len(skus))
+        return skus
+
     def fetch_tabs(self, permalink: str) -> tuple[SegalTab, ...]:
         """GET the product page and parse its #more-info tabs. Empty on any failure."""
         if not permalink:

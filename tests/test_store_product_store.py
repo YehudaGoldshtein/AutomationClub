@@ -109,12 +109,12 @@ class TestNonClobberInvariant:
 
 
 class TestMissingAtSource:
-    """Flag/clear the dashboard's `missing_at_source` boolean for products dropped by the supplier."""
+    """Flag/clear the dashboard's `missing_at_source` boolean, unified per product."""
 
     def test_flag_inserts_tracking_row_when_absent(self, store):
         # An existing store product we never onboarded (no row yet) → insert one, flagged.
-        store.flag_missing_at_source(C, sku="X-1", store_product_id="700",
-                                     title="t", vendor="שניר | snir", published=True)
+        store.flag_missing_at_source(C, "700", sku="X-1", title="t",
+                                     vendor="שניר | snir", published=True)
         rec = store.get(C, "X-1")
         assert rec is not None
         assert rec.missing_at_source is True
@@ -122,38 +122,47 @@ class TestMissingAtSource:
         assert rec.vendor == "שניר | snir"
         assert rec.needs_review is False   # missing-at-source is its own flag, not review-reason
 
+    def test_flag_covers_all_variants_of_a_product(self, store):
+        # Two variants share one store_product_id → one flag call flags both rows.
+        store.write_pending(C, [_pending("V-1", pid="901"), _pending("V-2", pid="901")])
+        store.flag_missing_at_source(C, "901")
+        assert store.get(C, "V-1").missing_at_source is True
+        assert store.get(C, "V-2").missing_at_source is True
+
     def test_flag_does_not_touch_existing_review_reason(self, store):
         store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
                                          needs_review_reason="no_image")])
-        store.flag_missing_at_source(C, sku="D-1", store_product_id="901")
+        store.flag_missing_at_source(C, "901")
         rec = store.get(C, "D-1")
         assert rec.missing_at_source is True
         assert rec.needs_review_reason == "no_image"   # untouched
         assert rec.status == "draft"                   # existing row's status is NOT reset
 
     def test_flag_is_idempotent(self, store):
-        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
-        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
+        store.flag_missing_at_source(C, "700", sku="X-1")
+        store.flag_missing_at_source(C, "700", sku="X-1")
         assert store.get(C, "X-1").missing_at_source is True
 
-    def test_clear_unsets_the_boolean(self, store):
-        store.flag_missing_at_source(C, sku="X-1", store_product_id="700")
-        store.clear_missing_at_source(C, "X-1")
-        assert store.get(C, "X-1").missing_at_source is False
+    def test_clear_unsets_all_variants(self, store):
+        store.write_pending(C, [_pending("V-1", pid="901"), _pending("V-2", pid="901")])
+        store.flag_missing_at_source(C, "901")
+        store.clear_missing_at_source(C, "901")
+        assert store.get(C, "V-1").missing_at_source is False
+        assert store.get(C, "V-2").missing_at_source is False
 
     def test_clear_leaves_other_review_reasons_intact(self, store):
         store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
                                          needs_review_reason="no_image")])
-        store.flag_missing_at_source(C, sku="D-1", store_product_id="901")
-        store.clear_missing_at_source(C, "D-1")
+        store.flag_missing_at_source(C, "901")
+        store.clear_missing_at_source(C, "901")
         rec = store.get(C, "D-1")
         assert rec.missing_at_source is False
         assert rec.needs_review_reason == "no_image" and rec.needs_review is True
 
     def test_clear_on_unknown_or_unflagged_is_noop(self, store):
-        store.clear_missing_at_source(C, "NOPE")            # no row → no error
+        store.clear_missing_at_source(C, "NOPE")            # no rows → no error
         store.write_pending(C, [_pending("D-2", pid="902")])
-        store.clear_missing_at_source(C, "D-2")             # not flagged → unchanged
+        store.clear_missing_at_source(C, "902")             # not flagged → unchanged
         assert store.get(C, "D-2").missing_at_source is False
 
 

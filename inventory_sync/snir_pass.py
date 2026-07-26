@@ -89,3 +89,9 @@ class SnirUnifiedSource:
 
     def owned_vendors(self) -> tuple[str, ...]:
         return (VENDOR,)  # flag Snir store products that vanish from Snir's catalog
+
+    def catalog_skus(self) -> set[str]:
+        # Snir lists its ENTIRE feed from one endpoint (unlike Segal's per-category
+        # ingest scope), so the full catalog is just every SKU it returns.
+        return {p.sku for data in self.adapter.list_products()
+                if (p := parse_api_product(data)).sku}

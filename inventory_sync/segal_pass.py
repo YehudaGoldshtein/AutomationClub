@@ -75,3 +75,8 @@ class SegalUnifiedSource:
 
     def owned_vendors(self) -> tuple[str, ...]:
         return (VENDOR,)  # flag Segal store products that vanish from Segal's catalog
+
+    def catalog_skus(self) -> set[str]:
+        # FULL catalog (every category) for the missing check — NOT the 6 ingest
+        # categories, else products like sku 446 (a 'room') are false-flagged.
+        return self.adapter.list_all_skus()

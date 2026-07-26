@@ -17,7 +17,7 @@ import sqlalchemy
 from inventory_sync.adapters.shopify import ShopifyError
 from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
 from inventory_sync.fakes import InMemoryStore
-from inventory_sync.laura_mapping import CATEGORY_COLLECTION_ID
+from inventory_sync.laura_mapping import CATEGORY_COLLECTION_ID, VENDOR
 from inventory_sync.laura_ingest import IngestSummary, ingest_products, parse_laura_xlsx
 from inventory_sync.laura_upload import LauraRow
 from inventory_sync.log import get
@@ -112,6 +112,36 @@ def _row(sku, desc="בגד גוף לבן NB", family="בגד גוף",
 
 C = "maxbaby"
 LOG = get("test")
+
+
+def _laura(sku: str) -> Product:
+    return Product(sku=SKU(sku), vendor_product_id=VendorProductId(sku), stock=StockLevel(1),
+                   published=True, store_product_id=sku, vendor=VENDOR)
+
+
+class TestIngestMissingAtSource:
+    """Laura products that dropped off the file entirely → flagged (guarded)."""
+
+    def test_flags_laura_product_absent_from_file(self):
+        store, ps = _stores([_laura("L-1"), _laura("L-2"), _laura("L-3"), _laura("GONE")])
+        rows = [_row("L-1"), _row("L-2"), _row("L-3")]   # covers 3/4 = 75%; GONE absent
+        summary = ingest_products(rows, store, ps, C, LOG)
+        assert summary.flagged_missing == 1
+        assert ps.get(C, "GONE").missing_at_source is True
+
+    def test_partial_file_guard_skips_flagging(self):
+        store, ps = _stores([_laura("L-1"), _laura("L-2"), _laura("L-3"), _laura("GONE")])
+        summary = ingest_products([_row("L-1")], store, ps, C, LOG)  # 1/4 = 25% < 75%
+        assert summary.flagged_missing == 0
+        assert ps.get(C, "GONE") is None                 # nothing flagged
+
+    def test_ignores_non_laura_vendor(self):
+        seg = Product(sku=SKU("SEG-1"), vendor_product_id=VendorProductId("SEG-1"),
+                      stock=StockLevel(1), published=True, store_product_id="9", vendor="segal | סגל")
+        store, ps = _stores([_laura("L-1"), _laura("L-2"), _laura("L-3"), seg])
+        summary = ingest_products([_row("L-1"), _row("L-2"), _row("L-3")], store, ps, C, LOG)
+        assert summary.flagged_missing == 0              # SEG-1 isn't Laura's to flag
+        assert ps.get(C, "SEG-1") is None
 
 
 class TestIngestCreate:

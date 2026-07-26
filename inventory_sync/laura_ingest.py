@@ -20,9 +20,15 @@ from inventory_sync import review_reasons
 from inventory_sync.domain import SKU
 from inventory_sync.laura_mapping import (
     CATEGORY_COLLECTION_ID,
+    VENDOR,
     subcategory_collection,
     to_product_draft,
 )
+from inventory_sync.missing_source import reconcile_missing_at_source
+
+# Skip missing-at-source flagging if the uploaded file covers less than this
+# fraction of existing Laura products — it's probably a partial/wrong upload.
+_MISSING_COVERAGE_MIN = 0.75
 from inventory_sync.laura_upload import LauraRow, group_products
 from inventory_sync.persistence.store_product_store import NewStoreProduct
 
@@ -32,6 +38,7 @@ class IngestSummary:
     created: int = 0
     skipped_existing: int = 0
     flagged_review: int = 0
+    flagged_missing: int = 0    # Laura products gone from the file entirely (missing-at-source)
     errors: int = 0            # products that failed to create/archive (isolated, batch continues)
     would_create: int = 0      # dry-run: products that would be created
     archived: int = 0          # discontinued ("אזל") products taken down from the site
@@ -227,8 +234,27 @@ def ingest_products(rows, store, product_store, customer_id: str, logger, dry_ru
         summary.created += 1
         summary.created_skus.extend(sorted(group_skus))
 
+    # --- missing-at-source: Laura store products absent from THIS file entirely ---
+    # (Not the "אזל" takedown above — that's for in-file discontinued rows. This
+    # catches products that dropped off the file completely.) GUARDED against a
+    # partial/wrong upload: if the file covers <75% of existing Laura products it
+    # is probably incomplete, so we skip flagging rather than flag hundreds.
+    file_skus = {str(r.sku) for r in rows if r.sku}
+    laura_skus = {str(p.sku) for p in existing if p.vendor == VENDOR}
+    if laura_skus:
+        coverage = len(laura_skus & file_skus) / len(laura_skus)
+        if coverage < _MISSING_COVERAGE_MIN:
+            logger.warning("ingest_missing_check_skipped_partial_file",
+                           coverage=round(coverage, 3), laura_products=len(laura_skus),
+                           file_skus=len(file_skus), threshold=_MISSING_COVERAGE_MIN)
+        else:
+            summary.flagged_missing = reconcile_missing_at_source(
+                product_store, existing, file_skus, (VENDOR,),
+                customer_id, logger, dry_run=dry_run)
+
     logger.info("ingest_summary", customer_id=customer_id, created=summary.created,
                 skipped_existing=summary.skipped_existing, flagged_review=summary.flagged_review,
                 errors=summary.errors, would_create=summary.would_create,
-                archived=summary.archived, would_archive=summary.would_archive, dry_run=dry_run)
+                archived=summary.archived, would_archive=summary.would_archive,
+                flagged_missing=summary.flagged_missing, dry_run=dry_run)
     return summary

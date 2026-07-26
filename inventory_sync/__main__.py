@@ -37,6 +37,8 @@ from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter
 from inventory_sync.adapters.bambino import BambinoApiAdapter
 from inventory_sync.bambino_delete import delete_existing_bambino_brands
 from inventory_sync.bambino_ingest import ingest_bambino
+from inventory_sync.bambino_mapping import vendor_for as bambino_vendor_for
+from inventory_sync.missing_source import reconcile_missing_at_source
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.segal_pass import SegalUnifiedSource
@@ -489,16 +491,30 @@ def cmd_bambino_sync(args, log: Logger, cfg: Config) -> int:
     raw_store = _build_shopify_adapter(cfg, log, vendor_filter=None)
     store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
 
-    catalog_skus = {p.catalog_number for p in supplier.fetch_all_products() if p.catalog_number}
-    products = [p for p in store.list_products() if str(p.sku) in catalog_skus]
+    catalog = list(supplier.fetch_all_products())
+    catalog_skus = {p.catalog_number for p in catalog if p.catalog_number}
+    owned_vendors = {bambino_vendor_for(p.brand) for p in catalog if p.brand}
+    all_products = store.list_products()
+    products = [p for p in all_products if str(p.sku) in catalog_skus]
     snapshots = supplier.fetch_snapshots([p.vendor_product_id for p in products])
     run = SyncEngine(store=store, supplier=supplier, policy=DefaultStockPolicy(),
                      logger=log).run_with_data(products, snapshots)
 
+    # missing-at-source: Bambino store products (any of the 9 brand vendors) no
+    # longer in the master feed. Guard: skip when the feed came back empty (a fetch
+    # failure), else we'd flag every Bambino product.
+    flagged_missing = 0
+    if catalog_skus:
+        product_store = _build_store_product_store(cfg, log)
+        flagged_missing = reconcile_missing_at_source(
+            product_store, all_products, catalog_skus, owned_vendors,
+            args.customer_id, log, dry_run=args.dry_run)
+
     print(
         f"bambino-sync: items_checked={run.items_checked} "
         f"changes_planned={len(run.changes_planned)} changes_applied={len(run.changes_applied)} "
-        f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} dry_run={args.dry_run}"
+        f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} "
+        f"flagged_missing={flagged_missing} dry_run={args.dry_run}"
     )
     if not run.aborted and run.errors:
         log.warning("bambino_sync_completed_with_isolated_errors", errors=len(run.errors))

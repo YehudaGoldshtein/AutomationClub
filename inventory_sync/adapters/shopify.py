@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Iterator
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -36,6 +37,16 @@ from inventory_sync.log import Logger, get
 
 class ShopifyError(Exception):
     pass
+
+
+def _to_decimal(raw) -> Decimal | None:
+    """Shopify prices are strings ('63.72') or null; parse to Decimal or None."""
+    if raw in (None, ""):
+        return None
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _safe_image_url(url: str) -> str:
@@ -112,6 +123,8 @@ class ShopifyAdapter:
                         title=title,
                         store_product_id=str(product_id),
                         vendor=vendor,
+                        price=_to_decimal(variant.get("price")),
+                        compare_at_price=_to_decimal(variant.get("compare_at_price")),
                     )
                 )
 
@@ -174,6 +187,30 @@ class ShopifyAdapter:
             raise ShopifyError(
                 f"inventory_items/{inventory_item_id}.json {resp.status_code}: {resp.text[:200]}"
             )
+
+    def update_variant_price(self, sku: SKU, price, compare_at) -> None:
+        """PUT the variant's price + compare_at_price. `compare_at=None` clears the
+        strikethrough (sale ended). Retries on 429 like the stock path."""
+        ref = self._require_ref(sku)
+        body = {"variant": {
+            "id": ref.variant_id,
+            "price": str(price),
+            "compare_at_price": str(compare_at) if compare_at is not None else None,
+        }}
+        path = f"/variants/{ref.variant_id}.json"
+        resp = self.client.put(path, json=body)
+        attempt = 0
+        while resp.status_code == 429 and attempt < self.max_rate_limit_retries:
+            delay = _retry_after_seconds(resp)
+            self.logger.warning("rate_limited_retrying", sku=sku, attempt=attempt + 1, delay=delay)
+            time.sleep(delay)
+            resp = self.client.put(path, json=body)
+            attempt += 1
+        if resp.status_code not in (200, 201):
+            self.logger.error("price_update_failed", sku=sku, status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"variants/{ref.variant_id}.json {resp.status_code}: {resp.text[:200]}")
+        self.logger.info("price_updated", sku=sku, price=str(price),
+                         compare_at=str(compare_at) if compare_at is not None else None)
 
     def unpublish(self, sku: SKU) -> None:
         self._set_product_status(sku, "archived")

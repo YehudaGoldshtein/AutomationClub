@@ -117,6 +117,19 @@ class _FakeShopifyApi:
             pid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
             self.products.pop(pid, None)
             return httpx.Response(200, json={})
+        if method == "PUT" and "/variants/" in path and path.endswith(".json"):
+            vid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
+            import json as _json
+            data = _json.loads(request.content.decode())["variant"]
+            for p in self.products.values():
+                for v in p.get("variants", []):
+                    if v["id"] == vid:
+                        if "price" in data:
+                            v["price"] = data["price"]
+                        if "compare_at_price" in data:
+                            v["compare_at_price"] = data["compare_at_price"]
+                        return httpx.Response(200, json={"variant": v})
+            return httpx.Response(404, text=f"no variant {vid}")
         if method == "PUT" and "/products/" in path and path.endswith(".json"):
             product_id_str = path.rsplit("/", 1)[-1].replace(".json", "")
             try:
@@ -175,13 +188,19 @@ class _FakeShopifyApi:
         return httpx.Response(200, json={"products": page}, headers=headers)
 
 
-def _mk_variant(variant_id: int, inventory_item_id: int, sku: str, qty: int) -> dict:
-    return {
+def _mk_variant(variant_id: int, inventory_item_id: int, sku: str, qty: int,
+                price: str | None = None, compare_at_price: str | None = None) -> dict:
+    v = {
         "id": variant_id,
         "inventory_item_id": inventory_item_id,
         "sku": sku,
         "inventory_quantity": qty,
     }
+    if price is not None:
+        v["price"] = price
+    if compare_at_price is not None:
+        v["compare_at_price"] = compare_at_price
+    return v
 
 
 def _mk_product(
@@ -344,6 +363,41 @@ class TestUpdateStock:
         assert fake.tracked[100] is True          # tracking was enabled
         assert fake.inventory[100] == 9           # and the set succeeded on retry
         assert ("PUT", "/admin/api/2024-10/inventory_items/100.json") in fake.request_log
+
+
+class TestUpdateVariantPrice:
+    def test_sets_price_and_compare_at(self):
+        from decimal import Decimal
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(11, 111, "A", 5, price="100.00")])])
+        adapter = _make_adapter(fake)
+        adapter.list_products()
+        adapter.update_variant_price(SKU("A"), Decimal("80.00"), Decimal("100.00"))
+        v = fake.products[1]["variants"][0]
+        assert v["price"] == "80.00" and v["compare_at_price"] == "100.00"
+
+    def test_clears_compare_at_with_null(self):
+        from decimal import Decimal
+        fake = _FakeShopifyApi([_mk_product(
+            1, [_mk_variant(11, 111, "A", 5, price="80.00", compare_at_price="100.00")])])
+        adapter = _make_adapter(fake)
+        adapter.list_products()
+        adapter.update_variant_price(SKU("A"), Decimal("100.00"), None)
+        v = fake.products[1]["variants"][0]
+        assert v["price"] == "100.00" and v["compare_at_price"] is None
+
+
+class TestListProductsPrice:
+    def test_reads_price_and_compare_at(self):
+        from decimal import Decimal
+        fake = _FakeShopifyApi([_mk_product(
+            1, [_mk_variant(11, 111, "A", 5, price="63.72", compare_at_price="90.00")])])
+        p = _make_adapter(fake).list_products()[0]
+        assert p.price == Decimal("63.72") and p.compare_at_price == Decimal("90.00")
+
+    def test_missing_price_is_none(self):
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(11, 111, "A", 5)])])
+        p = _make_adapter(fake).list_products()[0]
+        assert p.price is None and p.compare_at_price is None
 
 
 class TestPublishStatus:

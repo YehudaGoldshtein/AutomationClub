@@ -1,0 +1,95 @@
+"""Pure pricing core for the price-sync feature. No I/O.
+
+Design (from the PRD + our discussion):
+  - Decide sales from PRICES, never the on_sale flag (it lies ~half the time).
+  - Store price as a re-derivable value; recompute from the fetched input each run.
+  - Write-avoidance is the point: `needs_write` lets the caller skip Shopify (the
+    2 req/s bottleneck) for the ~99% of products whose price didn't change.
+
+Money is Decimal throughout; prices round to 2 places (no whole-shekel rounding).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
+
+# --- Laura cost/price formula (PRD §11.2). The trade discount passes to the
+# customer; markup keeps a constant ~67% margin on cost. ---
+BASE_TRADE_DISCOUNT = Decimal("0.10")   # standard trade discount
+MAX_TRADE_DISCOUNT = Decimal("0.50")    # cap (§11.3)
+VAT = Decimal("1.18")
+MARKUP_NUM, MARKUP_DEN = Decimal(5), Decimal(3)   # 5/3 ≈ 1.6667 — kept exact as a ratio
+COMPARE_AT_FACTOR = Decimal("1.77")     # base × 1.77 == price at the default discount
+
+MAX_CHANGE = Decimal("0.60")            # block a price move larger than 60% (safety)
+
+_CENTS = Decimal("0.01")
+
+
+def _round2(x: Decimal) -> Decimal:
+    return x.quantize(_CENTS, rounding=ROUND_HALF_UP)
+
+
+def to_ils(raw, minor_unit) -> Decimal | None:
+    """Store-API price (integer string in minor units) → major units (÷10**minor_unit).
+
+    None/'' → None. Never assume minor_unit=0 — a wrong assumption shifts the whole
+    catalog by 100x."""
+    if raw in (None, ""):
+        return None
+    return Decimal(str(raw)) / (Decimal(10) ** int(minor_unit or 0))
+
+
+def sale_signal(regular, sale) -> tuple[bool, int]:
+    """(is_on_sale, discount_pct) decided from the numbers, not the on_sale flag.
+
+    A sale exists only when both prices are present and sale < regular; otherwise
+    (False, 0) — including the Segal trap where on_sale=true but regular == sale."""
+    if regular is None or sale is None or regular <= 0 or sale >= regular:
+        return False, 0
+    pct = ((Decimal(1) - Decimal(sale) / Decimal(regular)) * 100).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    )
+    return True, int(pct)
+
+
+def _check_trade(trade: Decimal) -> None:
+    if not (BASE_TRADE_DISCOUNT <= trade <= MAX_TRADE_DISCOUNT):
+        raise ValueError(f"trade discount out of range [0.10, 0.50]: {trade}")
+
+
+def laura_cost(base: Decimal, trade: Decimal = BASE_TRADE_DISCOUNT) -> Decimal:
+    """Actual cost incl. VAT: base × (1 − trade) × VAT."""
+    _check_trade(trade)
+    return base * (Decimal(1) - trade) * VAT
+
+
+def laura_price(base: Decimal, trade: Decimal = BASE_TRADE_DISCOUNT) -> Decimal:
+    """Shelf price: cost × markup. The trade discount is passed to the customer."""
+    _check_trade(trade)
+    return _round2(base * (Decimal(1) - trade) * VAT * MARKUP_NUM / MARKUP_DEN)
+
+
+def laura_compare_at(base: Decimal) -> Decimal:
+    """The 'regular' price — always at the base discount (base × 1.77)."""
+    return _round2(base * COMPARE_AT_FACTOR)
+
+
+def change_too_large(old, new) -> bool:
+    """True if |new − old| / old exceeds MAX_CHANGE. No previous price → not too large."""
+    if old is None or Decimal(old) == 0:
+        return False
+    return abs(Decimal(new) - Decimal(old)) / Decimal(old) > MAX_CHANGE
+
+
+@dataclass(frozen=True)
+class TargetPrice:
+    """The price we want on the store: `price`, and `compare_at` (struck-through
+    original) only when on sale — None clears any strikethrough."""
+    price: Decimal
+    compare_at: Decimal | None = None
+
+
+def needs_write(current_price, current_compare_at, target: TargetPrice) -> bool:
+    """Write-avoidance: only touch Shopify when price OR compare_at actually differs."""
+    return current_price != target.price or current_compare_at != target.compare_at

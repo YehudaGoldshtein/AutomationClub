@@ -100,6 +100,53 @@ class TestResolveTarget:
         assert t.price == D("2830") and t.compare_at is None
 
 
+class TestWooTarget:
+    """WooCommerce Store API `prices` object → TargetPrice (Segal + Snir)."""
+
+    def test_on_sale(self):
+        t = pricing.woo_target({"regular_price": "1000", "sale_price": "750", "currency_minor_unit": 0})
+        assert t.price == D("750") and t.compare_at == D("1000")
+
+    def test_not_on_sale_regular_equals_sale(self):
+        t = pricing.woo_target({"regular_price": "1000", "sale_price": "1000", "currency_minor_unit": 0})
+        assert t.price == D("1000") and t.compare_at is None
+
+    def test_minor_units_scaled(self):
+        t = pricing.woo_target({"regular_price": "44900", "sale_price": "33700", "currency_minor_unit": 2})
+        assert t.price == D("337.00") and t.compare_at == D("449.00")
+
+    def test_missing_sale_price_is_plain(self):
+        t = pricing.woo_target({"regular_price": "1000", "currency_minor_unit": 0})
+        assert t.price == D("1000") and t.compare_at is None
+
+    def test_no_regular_price_returns_none(self):
+        assert pricing.woo_target({"currency_minor_unit": 0}) is None
+
+
+class TestDecidePrice:
+    """The per-product decision the sync uses: noop / write / blocked."""
+
+    def test_noop_when_unchanged(self):
+        t = pricing.TargetPrice(price=D("100"))
+        assert pricing.decide_price(D("100"), None, t) is pricing.PriceAction.NOOP
+
+    def test_write_on_small_change(self):
+        t = pricing.TargetPrice(price=D("90"))
+        assert pricing.decide_price(D("100"), None, t) is pricing.PriceAction.WRITE
+
+    def test_blocked_on_change_over_60pct(self):
+        t = pricing.TargetPrice(price=D("30"))          # -70%
+        assert pricing.decide_price(D("100"), None, t) is pricing.PriceAction.BLOCKED
+
+    def test_write_when_sale_starts_within_guard(self):
+        t = pricing.TargetPrice(price=D("80"), compare_at=D("100"))
+        assert pricing.decide_price(D("100"), None, t) is pricing.PriceAction.WRITE
+
+    def test_no_previous_price_writes(self):
+        t = pricing.TargetPrice(price=D("500"))
+        assert pricing.decide_price(None, None, t) is pricing.PriceAction.WRITE
+
+
 class TestNeedsWrite:
     def test_no_change_skips_write(self):
         t = pricing.TargetPrice(price=D("100"), compare_at=None)

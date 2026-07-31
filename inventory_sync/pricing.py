@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
+from enum import Enum
 
 # --- Laura cost/price formula (PRD §11.2). The trade discount passes to the
 # customer; markup keeps a constant ~67% margin on cost. ---
@@ -105,3 +106,35 @@ def resolve_target(regular, sale) -> TargetPrice:
 def needs_write(current_price, current_compare_at, target: TargetPrice) -> bool:
     """Write-avoidance: only touch Shopify when price OR compare_at actually differs."""
     return current_price != target.price or current_compare_at != target.compare_at
+
+
+def woo_target(prices: dict) -> TargetPrice | None:
+    """WooCommerce Store API `prices` object → TargetPrice (Segal + Snir).
+
+    Uses regular_price / sale_price (normalized by currency_minor_unit) and decides
+    the sale from the numbers. None when there is no regular price to work from."""
+    minor = prices.get("currency_minor_unit", 0)
+    regular = to_ils(prices.get("regular_price"), minor)
+    sale = to_ils(prices.get("sale_price"), minor)
+    if regular is None:
+        return None
+    return resolve_target(regular, sale)
+
+
+class PriceAction(str, Enum):
+    NOOP = "noop"        # nothing changed → skip Shopify (the bottleneck)
+    WRITE = "write"      # price/compare_at changed within the guard → update
+    BLOCKED = "blocked"  # change exceeds the >60% guard → skip + report, never write
+
+
+def decide_price(current_price, current_compare_at, target: TargetPrice) -> PriceAction:
+    """Per-product decision for the sync: noop / write / blocked.
+
+    NOOP is the common case (prices are stable) — that's the write-avoidance that
+    keeps us off Shopify's rate limit. BLOCKED protects against a bad match / feed
+    glitch writing a wildly wrong price."""
+    if not needs_write(current_price, current_compare_at, target):
+        return PriceAction.NOOP
+    if change_too_large(current_price, target.price):
+        return PriceAction.BLOCKED
+    return PriceAction.WRITE

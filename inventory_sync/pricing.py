@@ -121,6 +121,24 @@ def woo_target(prices: dict) -> TargetPrice | None:
     return resolve_target(regular, sale)
 
 
+SALE_TAG = "supplier-sale"   # drives the automated Shopify "sale" collection (PRD §8)
+
+
+def sale_tags(target: TargetPrice) -> set[str]:
+    """Sale tags for a target: {supplier-sale, sale-<pct>} when on sale, else empty."""
+    if target.compare_at is None:
+        return set()
+    on, pct = sale_signal(target.compare_at, target.price)
+    return {SALE_TAG, f"sale-{pct}"} if on else set()
+
+
+def reconcile_tags(current_tags, target: TargetPrice) -> set[str]:
+    """New full tag set: drop any stale sale tags, keep everything else, add the
+    current sale tags (empty when the sale ended → tags simply removed)."""
+    kept = {t for t in current_tags if t != SALE_TAG and not t.startswith("sale-")}
+    return kept | sale_tags(target)
+
+
 class PriceAction(str, Enum):
     NOOP = "noop"        # nothing changed → skip Shopify (the bottleneck)
     WRITE = "write"      # price/compare_at changed within the guard → update

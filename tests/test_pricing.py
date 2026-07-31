@@ -147,6 +147,31 @@ class TestDecidePrice:
         assert pricing.decide_price(None, None, t) is pricing.PriceAction.WRITE
 
 
+class TestSaleTags:
+    def test_on_sale_yields_supplier_and_pct_tag(self):
+        t = pricing.TargetPrice(price=D("750"), compare_at=D("1000"))
+        assert pricing.sale_tags(t) == {"supplier-sale", "sale-25"}
+
+    def test_not_on_sale_yields_no_tags(self):
+        assert pricing.sale_tags(pricing.TargetPrice(price=D("1000"))) == set()
+
+
+class TestReconcileTags:
+    def test_adds_sale_tags_keeping_others(self):
+        new = pricing.reconcile_tags({"furniture", "segal"}, pricing.TargetPrice(D("750"), D("1000")))
+        assert new == {"furniture", "segal", "supplier-sale", "sale-25"}
+
+    def test_sale_ended_removes_sale_tags_keeps_others(self):
+        current = {"furniture", "supplier-sale", "sale-25"}
+        new = pricing.reconcile_tags(current, pricing.TargetPrice(D("1000")))   # no sale
+        assert new == {"furniture"}
+
+    def test_pct_change_swaps_the_pct_tag(self):
+        current = {"supplier-sale", "sale-40", "x"}
+        new = pricing.reconcile_tags(current, pricing.TargetPrice(D("750"), D("1000")))  # now 25%
+        assert new == {"supplier-sale", "sale-25", "x"}
+
+
 class TestNeedsWrite:
     def test_no_change_skips_write(self):
         t = pricing.TargetPrice(price=D("100"), compare_at=None)

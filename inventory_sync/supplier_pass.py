@@ -74,6 +74,7 @@ class UnifiedPassSummary:
     prices_updated: int = 0    # variant prices written (changed)
     prices_would_update: int = 0
     prices_blocked: int = 0     # price change exceeded the >60% guard
+    tags_updated: int = 0       # products whose sale tags changed
     dry_run: bool = False
     new_skus: list[str] = field(default_factory=list)
 
@@ -180,6 +181,7 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
         summary.prices_updated = psum.updated
         summary.prices_would_update = psum.would_update
         summary.prices_blocked = psum.blocked
+        summary.tags_updated = psum.tags_updated + psum.tags_would_update
 
     # --- 2. onboard new products (not yet in the store) ---
     created: list[tuple[object, str]] = []

@@ -19,14 +19,18 @@ LOG = get("test")
 @dataclass
 class FakeStore:
     writes: list = field(default_factory=list)
+    tag_writes: list = field(default_factory=list)
 
     def update_variant_price(self, sku, price, compare_at):
         self.writes.append((str(sku), price, compare_at))
 
+    def set_product_tags(self, store_product_id, tags):
+        self.tag_writes.append((str(store_product_id), set(tags)))
 
-def _p(sku, price, compare_at=None):
+
+def _p(sku, price, compare_at=None, spid="1", tags=()):
     return Product(sku=SKU(sku), vendor_product_id=VendorProductId(sku), stock=StockLevel(1),
-                   published=True,
+                   published=True, store_product_id=spid, tags=tuple(tags),
                    price=D(price) if price is not None else None,
                    compare_at_price=D(compare_at) if compare_at is not None else None)
 
@@ -68,3 +72,24 @@ class TestReconcilePrices:
     def test_dry_run_counts_but_writes_nothing(self):
         store, s = _run([_p("A", "100")], {"A": _t("90")}, dry_run=True)
         assert s.would_update == 1 and s.updated == 0 and store.writes == []
+
+
+class TestTagSync:
+    def test_sale_start_adds_tags(self):
+        store, s = _run([_p("A", "800", spid="7", tags=("segal",))], {"A": _t("80", "100")})
+        assert s.tags_updated == 1
+        assert store.tag_writes == [("7", {"segal", "supplier-sale", "sale-20"})]
+
+    def test_sale_end_removes_tags_keeps_others(self):
+        store, s = _run([_p("A", "100", spid="7", tags=("segal", "supplier-sale", "sale-20"))],
+                        {"A": _t("100")})
+        assert store.tag_writes == [("7", {"segal"})]
+
+    def test_no_tag_change_writes_nothing(self):
+        store, s = _run([_p("A", "100", spid="7", tags=("segal",))], {"A": _t("100")})
+        assert s.tags_updated == 0 and store.tag_writes == []
+
+    def test_dry_run_does_not_write_tags(self):
+        store, s = _run([_p("A", "800", spid="7", tags=("segal",))], {"A": _t("80", "100")},
+                        dry_run=True)
+        assert s.tags_would_update == 1 and store.tag_writes == []

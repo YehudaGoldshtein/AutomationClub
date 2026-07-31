@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from inventory_sync.pricing import PriceAction, TargetPrice, decide_price
+from inventory_sync.pricing import PriceAction, TargetPrice, decide_price, reconcile_tags
 
 
 @dataclass
@@ -23,6 +23,8 @@ class PriceSyncSummary:
     would_update: int = 0            # WRITE planned (dry-run)
     blocked: int = 0                 # change exceeded the >60% guard — not written
     skipped_unmatched: int = 0       # store product with no supplier target
+    tags_updated: int = 0            # products whose sale tags changed
+    tags_would_update: int = 0
     dry_run: bool = False
     blocked_skus: list[str] = field(default_factory=list)
 
@@ -54,6 +56,28 @@ def reconcile_prices(store, store_products, targets: dict[str, TargetPrice], log
             logger.info("price_update", sku=str(p.sku), price=str(target.price),
                         compare_at=str(target.compare_at) if target.compare_at is not None else None,
                         dry_run=dry_run)
+    # --- product-level sale tags (supplier-sale / sale-<pct>) drive the collection ---
+    # Grouped by product: a product is on sale if any of its variants is; tags are
+    # added when it goes on sale and removed when it ends (other tags preserved).
+    by_product: dict[str, dict] = {}
+    for p in store_products:
+        if targets.get(str(p.sku)) is None or not p.store_product_id:
+            continue
+        g = by_product.setdefault(p.store_product_id, {"tags": set(p.tags), "rep": targets[str(p.sku)]})
+        if targets[str(p.sku)].compare_at is not None:
+            g["rep"] = targets[str(p.sku)]   # prefer an on-sale variant as representative
+    for spid, g in by_product.items():
+        desired = reconcile_tags(g["tags"], g["rep"])
+        if desired == g["tags"]:
+            continue
+        if dry_run:
+            summary.tags_would_update += 1
+        else:
+            store.set_product_tags(spid, desired)
+            summary.tags_updated += 1
+        logger.info("product_tags_reconciled", store_product_id=spid,
+                    tags=sorted(desired), dry_run=dry_run)
+
     logger.info("price_sync_summary", checked=summary.checked, unchanged=summary.unchanged,
                 updated=summary.updated, would_update=summary.would_update,
                 blocked=summary.blocked, skipped_unmatched=summary.skipped_unmatched,

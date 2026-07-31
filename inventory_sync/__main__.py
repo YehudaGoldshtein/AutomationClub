@@ -422,7 +422,7 @@ def cmd_segal_pass(args, log: Logger, cfg: Config) -> int:
         f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
         f"would_create={summary.would_create} prices_updated={summary.prices_updated} "
         f"prices_would_update={summary.prices_would_update} prices_blocked={summary.prices_blocked} "
-        f"dry_run={summary.dry_run}"
+        f"tags_updated={summary.tags_updated} dry_run={summary.dry_run}"
     )
     return 1 if (summary.stock_errors or summary.create_errors) else 0
 
@@ -469,7 +469,7 @@ def cmd_snir_pass(args, log: Logger, cfg: Config) -> int:
         f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
         f"would_create={summary.would_create} prices_updated={summary.prices_updated} "
         f"prices_would_update={summary.prices_would_update} prices_blocked={summary.prices_blocked} "
-        f"dry_run={summary.dry_run}"
+        f"tags_updated={summary.tags_updated} dry_run={summary.dry_run}"
     )
     return 1 if (summary.stock_errors or summary.create_errors) else 0
 

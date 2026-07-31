@@ -43,6 +43,8 @@ class Product:
     title: str | None = None
     store_product_id: str | None = None
     vendor: str | None = None  # store-side vendor/supplier tag (for dashboard grouping)
+    price: Decimal | None = None            # current variant price (for price-sync diff)
+    compare_at_price: Decimal | None = None  # current struck-through price (None = not on sale)
 
 
 class ChangeKind(str, Enum):

@@ -34,6 +34,7 @@ class Item:
     stock_count: int = 5
     images: tuple = ("http://img/1.jpg",)
     collections: tuple = ("Coll",)
+    price: int | None = None   # supplier target price (None = no price target)
 
 
 @dataclass
@@ -49,6 +50,12 @@ class FakeSource:
     def catalog_skus(self):
         # full catalog = every item's sku (tests don't distinguish ingest subset)
         return {it.sku for it in self.items if it.sku}
+
+    def price_target(self, it):
+        from inventory_sync.pricing import resolve_target
+        if it.price is None:
+            return None
+        return resolve_target(Decimal(str(it.price)), None)
 
     def list_catalog(self):
         return list(self.items)
@@ -216,6 +223,37 @@ class TestMissingAtSource:
         s = unified_pass(src, store, ps, DefaultStockPolicy(), C, LOG, dry_run=True)
         assert s.flagged_missing == 1
         assert ps.get(C, "GONE-1") is None                  # no write on dry run
+
+
+def _priced(sku, price, spid, compare_at=None):
+    return Product(sku=SKU(sku), vendor_product_id=VendorProductId(sku), stock=StockLevel(1),
+                   published=True, store_product_id=spid, price=Decimal(str(price)),
+                   compare_at_price=Decimal(str(compare_at)) if compare_at is not None else None)
+
+
+class TestPriceSync:
+    """Price sync folded into the pass — off by default, gated by sync_prices."""
+
+    def test_off_by_default(self):
+        store, ps = _stores([_priced("E-1", 100, "1")])
+        s = unified_pass(FakeSource([Item("E-1", price=90)]), store, ps,
+                         DefaultStockPolicy(), C, LOG)
+        assert s.prices_updated == 0
+        assert store.get(SKU("E-1")).price == Decimal("100")     # untouched
+
+    def test_updates_changed_price_when_enabled(self):
+        store, ps = _stores([_priced("E-1", 100, "1")])
+        s = unified_pass(FakeSource([Item("E-1", price=90)]), store, ps,
+                         DefaultStockPolicy(), C, LOG, sync_prices=True)
+        assert s.prices_updated == 1
+        assert store.get(SKU("E-1")).price == Decimal("90")
+
+    def test_dry_run_plans_but_does_not_write(self):
+        store, ps = _stores([_priced("E-1", 100, "1")])
+        s = unified_pass(FakeSource([Item("E-1", price=90)]), store, ps,
+                         DefaultStockPolicy(), C, LOG, sync_prices=True, dry_run=True)
+        assert s.prices_would_update == 1 and s.prices_updated == 0
+        assert store.get(SKU("E-1")).price == Decimal("100")
 
 
 class TestErrorIsolation:

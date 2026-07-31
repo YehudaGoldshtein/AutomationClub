@@ -408,14 +408,17 @@ def cmd_segal_pass(args, log: Logger, cfg: Config) -> int:
             log.warning("segal_pass_notify_failed")
 
     summary = unified_pass(source, store, product_store, DefaultStockPolicy(), args.customer_id, log,
-                           dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new)
+                           dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new,
+                           sync_prices=args.sync_prices)
 
     print(
         f"segal-pass: items_checked={summary.items_checked} "
         f"stock_applied={summary.stock_changes_applied} stock_errors={summary.stock_errors} "
         f"created={summary.created} skipped_oos={summary.skipped_oos} "
         f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
-        f"would_create={summary.would_create} dry_run={summary.dry_run}"
+        f"would_create={summary.would_create} prices_updated={summary.prices_updated} "
+        f"prices_would_update={summary.prices_would_update} prices_blocked={summary.prices_blocked} "
+        f"dry_run={summary.dry_run}"
     )
     return 1 if (summary.stock_errors or summary.create_errors) else 0
 
@@ -449,14 +452,17 @@ def cmd_snir_pass(args, log: Logger, cfg: Config) -> int:
     with PlaywrightClient(headless=not args.headed, logger=log) as client:
         source = SnirUnifiedSource(adapter=SnirStoreApiAdapter(client=client, logger=log), logger=log)
         summary = unified_pass(source, store, product_store, DefaultStockPolicy(), args.customer_id, log,
-                               dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new)
+                               dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new,
+                               sync_prices=args.sync_prices)
 
     print(
         f"snir-pass: items_checked={summary.items_checked} "
         f"stock_applied={summary.stock_changes_applied} stock_errors={summary.stock_errors} "
         f"created={summary.created} skipped_oos={summary.skipped_oos} "
         f"skipped_uncategorized={summary.skipped_uncategorized} create_errors={summary.create_errors} "
-        f"would_create={summary.would_create} dry_run={summary.dry_run}"
+        f"would_create={summary.would_create} prices_updated={summary.prices_updated} "
+        f"prices_would_update={summary.prices_would_update} prices_blocked={summary.prices_blocked} "
+        f"dry_run={summary.dry_run}"
     )
     return 1 if (summary.stock_errors or summary.create_errors) else 0
 
@@ -885,6 +891,8 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
     sp.add_argument("--dry-run", action="store_true",
                     help="Plan stock changes + report new products, but write nothing")
+    sp.add_argument("--sync-prices", action="store_true",
+                    help="Also sync variant prices from the supplier (writes only changes)")
 
     snp = sub.add_parser(
         "snir-pass",
@@ -893,6 +901,8 @@ def main(argv: list[str] | None = None) -> int:
     snp.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
     snp.add_argument("--dry-run", action="store_true",
                      help="Plan stock changes + report new products, but write nothing")
+    snp.add_argument("--sync-prices", action="store_true",
+                     help="Also sync variant prices from the supplier (writes only changes)")
     snp.add_argument("--headed", action="store_true",
                      help="Run the browser headed (debugging; default headless)")
 

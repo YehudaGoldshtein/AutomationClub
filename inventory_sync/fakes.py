@@ -37,6 +37,9 @@ class InMemoryStore:
     def update_stock(self, sku: SKU, stock: StockLevel) -> None:
         self._products[sku] = replace(self._products[sku], stock=stock)
 
+    def update_variant_price(self, sku: SKU, price, compare_at) -> None:
+        self._products[sku] = replace(self._products[sku], price=price, compare_at_price=compare_at)
+
     def unpublish(self, sku: SKU) -> None:
         self._products[sku] = replace(self._products[sku], published=False)
 

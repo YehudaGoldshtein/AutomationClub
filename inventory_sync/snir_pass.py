@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from inventory_sync import review_reasons
 from inventory_sync.adapters.snir_baby import SnirStoreApiAdapter, _to_snapshot
 from inventory_sync.domain import ProductDraft, VendorProductSnapshot
+from inventory_sync.pricing import resolve_target
 from inventory_sync.log import Logger, get
 from inventory_sync.snir_mapping import (
     VENDOR,
@@ -95,3 +96,9 @@ class SnirUnifiedSource:
         # ingest scope), so the full catalog is just every SKU it returns.
         return {p.sku for data in self.adapter.list_products()
                 if (p := parse_api_product(data)).sku}
+
+    def price_target(self, item: SnirProduct):
+        # Snir exposes a single (regular) price — no sale price.
+        if item.price is None:
+            return None
+        return resolve_target(item.price, None)

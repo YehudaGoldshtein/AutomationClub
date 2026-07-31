@@ -33,6 +33,7 @@ from inventory_sync import review_reasons
 from inventory_sync.engine import SyncEngine
 from inventory_sync.missing_source import reconcile_missing_at_source
 from inventory_sync.persistence.store_product_store import NewStoreProduct
+from inventory_sync.pricing_sync import reconcile_prices
 
 
 class UnifiedSource(Protocol):
@@ -52,6 +53,8 @@ class UnifiedSource(Protocol):
                                                      # (enables missing-at-source flagging)
     def catalog_skus(self) -> set[str]: ...          # FULL supplier catalog SKUs (all
                                                      # categories) for the missing check
+    def price_target(self, item): ...                # TargetPrice for this item, or None
+                                                     # (enables price sync when sync_prices=True)
 
 
 @dataclass
@@ -68,6 +71,9 @@ class UnifiedPassSummary:
     create_errors: int = 0
     would_create: int = 0
     flagged_missing: int = 0   # existing store products no longer in the supplier catalog
+    prices_updated: int = 0    # variant prices written (changed)
+    prices_would_update: int = 0
+    prices_blocked: int = 0     # price change exceeded the >60% guard
     dry_run: bool = False
     new_skus: list[str] = field(default_factory=list)
 
@@ -125,7 +131,8 @@ def _create_with_salvage(source, store, product_store, customer_id, item, draft,
 
 def unified_pass(source: UnifiedSource, store, product_store, policy, customer_id: str, logger,
                  *, dry_run: bool = False, today: date | None = None,
-                 on_new_drafts: Callable[[list[str]], None] | None = None) -> UnifiedPassSummary:
+                 on_new_drafts: Callable[[list[str]], None] | None = None,
+                 sync_prices: bool = False) -> UnifiedPassSummary:
     """One pass: stock-sync existing supplier products + onboard new in-stock ones."""
     summary = UnifiedPassSummary(dry_run=dry_run)
     _ = today or date.today()
@@ -157,6 +164,22 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
         summary.flagged_missing = reconcile_missing_at_source(
             product_store, store_products, source.catalog_skus(), owned,
             customer_id, logger, dry_run=dry_run)
+
+    # --- 1c. price sync (folded into the pass; OFF unless sync_prices) ---
+    # Reuses the same fetch + matched store products; writes only changed prices
+    # (write-avoidance). Gated by sync_prices so stock/onboarding run live while
+    # price stays dry-run until a baseline is approved.
+    if sync_prices and getattr(source, "price_target", None) is not None:
+        targets = {}
+        for it in items:
+            s = source.sku(it)
+            t = source.price_target(it) if s else None
+            if t is not None:
+                targets[s] = t
+        psum = reconcile_prices(store, store_products, targets, logger, dry_run=dry_run)
+        summary.prices_updated = psum.updated
+        summary.prices_would_update = psum.would_update
+        summary.prices_blocked = psum.blocked
 
     # --- 2. onboard new products (not yet in the store) ---
     created: list[tuple[object, str]] = []
@@ -202,5 +225,7 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
                 skipped_uncategorized=summary.skipped_uncategorized,
                 linked=summary.linked, create_errors=summary.create_errors,
                 would_create=summary.would_create, flagged_missing=summary.flagged_missing,
-                dry_run=dry_run)
+                prices_updated=summary.prices_updated,
+                prices_would_update=summary.prices_would_update,
+                prices_blocked=summary.prices_blocked, dry_run=dry_run)
     return summary

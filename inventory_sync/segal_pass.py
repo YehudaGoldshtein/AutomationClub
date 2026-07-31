@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from inventory_sync import review_reasons
 from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter, _to_snapshot
 from inventory_sync.domain import ProductDraft, VendorProductSnapshot
+from inventory_sync.pricing import resolve_target
 from inventory_sync.log import Logger, get
 from inventory_sync.segal_mapping import (
     INGEST_CATEGORIES,
@@ -80,3 +81,9 @@ class SegalUnifiedSource:
         # FULL catalog (every category) for the missing check — NOT the 6 ingest
         # categories, else products like sku 446 (a 'room') are false-flagged.
         return self.adapter.list_all_skus()
+
+    def price_target(self, item: SegalProduct):
+        # Segal exposes regular + sale; sale decided by the numbers (flag lies).
+        if item.price is None:
+            return None
+        return resolve_target(item.price, item.sale_price)

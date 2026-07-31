@@ -4,7 +4,16 @@ name: segal-pass
 # as drafts, in one run. Supersedes running segal-sync + segal-ingest separately.
 # New products are drafts (approval-gated); a notification fires when any appear.
 
+# Scheduling is centralized in orchestrator.yml (workflow_call). Still hand-runnable.
 on:
+  workflow_call:
+    inputs:
+      customer_id:
+        type: string
+        default: 'maxbaby'
+      dry_run:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -16,12 +25,10 @@ on:
         description: 'Plan changes but write nothing'
         type: boolean
         default: true
-  schedule:
-    - cron: '15 */3 * * *'   # every 3h, offset from other suppliers' syncs
 
 # Never let two passes overlap (avoids a dedup race double-creating new products).
 concurrency:
-  group: segal-pass-${{ github.event.inputs.customer_id || 'maxbaby' }}
+  group: segal-pass-${{ inputs.customer_id || 'maxbaby' }}
   cancel-in-progress: false
 
 jobs:

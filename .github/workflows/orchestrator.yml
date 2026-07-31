@@ -1,0 +1,101 @@
+name: orchestrator
+
+# Single scheduled entry point for all supplier syncs (Option A: one cadence).
+# A preflight job reads the dashboard-controlled per-supplier flags
+# (supplier_settings table) and each supplier job runs only if its flag is on.
+# Suppliers run in parallel; reconcile runs last, always (even if one fails).
+#
+# Individual supplier workflows are still hand-runnable (workflow_dispatch) for
+# debugging — this just centralizes the *schedule* into one place.
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'   # every 3 hours — all ENABLED suppliers, then reconcile
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Tenant'
+        type: string
+        default: 'maxbaby'
+      dry_run:
+        description: 'Plan changes but write nothing (passed to every supplier)'
+        type: boolean
+        default: false
+
+jobs:
+  # --- read which suppliers are enabled for this tenant ---
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      laura: ${{ steps.flags.outputs.laura }}
+      segal: ${{ steps.flags.outputs.segal }}
+      bambino: ${{ steps.flags.outputs.bambino }}
+      snir: ${{ steps.flags.outputs.snir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install
+        run: pip install -e ".[postgres]"
+      - name: Read supplier flags
+        id: flags
+        env:
+          SHOPIFY_STORE_URL: ${{ vars.SHOPIFY_STORE_URL }}
+          SHOPIFY_ADMIN_API_TOKEN: ${{ secrets.SHOPIFY_ADMIN_API_TOKEN }}
+          SHOPIFY_MYSHOPIFY_DOMAIN: ${{ vars.SHOPIFY_MYSHOPIFY_DOMAIN }}
+          SHOPIFY_API_VERSION: ${{ vars.SHOPIFY_API_VERSION }}
+          VENDOR_NAME: ${{ vars.VENDOR_NAME }}
+          VENDOR_URL: ${{ vars.VENDOR_URL }}
+          VENDOR_STORE_TAG: ${{ vars.VENDOR_STORE_TAG }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          CID="${{ inputs.customer_id }}"; CID="${CID:-maxbaby}"
+          # prints laura=true|false, segal=..., bambino=..., snir=...
+          python -m inventory_sync supplier-flags --customer-id "$CID" >> "$GITHUB_OUTPUT"
+
+  laura:
+    needs: preflight
+    if: ${{ needs.preflight.outputs.laura == 'true' }}
+    uses: ./.github/workflows/sync.yml
+    secrets: inherit
+    with:
+      dry_run: ${{ github.event.inputs.dry_run == 'true' }}
+
+  segal:
+    needs: preflight
+    if: ${{ needs.preflight.outputs.segal == 'true' }}
+    uses: ./.github/workflows/segal-pass.yml
+    secrets: inherit
+    with:
+      customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
+      dry_run: ${{ github.event.inputs.dry_run == 'true' }}
+
+  bambino:
+    needs: preflight
+    if: ${{ needs.preflight.outputs.bambino == 'true' }}
+    uses: ./.github/workflows/bambino-sync.yml
+    secrets: inherit
+    with:
+      customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
+      dry_run: ${{ github.event.inputs.dry_run == 'true' }}
+
+  snir:
+    needs: preflight
+    if: ${{ needs.preflight.outputs.snir == 'true' }}
+    uses: ./.github/workflows/snir-pass.yml
+    secrets: inherit
+    with:
+      customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
+      dry_run: ${{ github.event.inputs.dry_run == 'true' }}
+
+  # runs last regardless of supplier outcomes; not gated by any toggle
+  reconcile:
+    needs: [preflight, laura, segal, bambino, snir]
+    if: ${{ always() && (github.event.inputs.dry_run != 'true') }}
+    uses: ./.github/workflows/reconcile.yml
+    secrets: inherit
+    with:
+      customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}

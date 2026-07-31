@@ -6,6 +6,13 @@ name: reconcile
 # dispatch for immediate activation. (The main sync also reconciles inline.)
 
 on:
+  # Called by orchestrator.yml at the end of each sweep AND kept on its own hourly
+  # cron so approvals go live within the hour (not only every orchestrator tick).
+  workflow_call:
+    inputs:
+      customer_id:
+        type: string
+        default: 'maxbaby'
   workflow_dispatch:
     inputs:
       customer_id:
@@ -14,7 +21,7 @@ on:
         required: true
         default: 'maxbaby'
   schedule:
-    - cron: '45 * * * *'   # hourly at :45 (offset from sync.yml :00)
+    - cron: '45 * * * *'   # hourly at :45 — fast approvals, independent of the 3h sweep
 
 jobs:
   reconcile:

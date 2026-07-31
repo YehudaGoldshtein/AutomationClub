@@ -3,7 +3,16 @@ name: bambino-sync
 # Keep existing Bambino products' stock in sync (quantity + in/out of stock) from
 # the master API. Never archives/unpublishes, never touches price (PRD §9).
 
+# Scheduling is centralized in orchestrator.yml (workflow_call). Still hand-runnable.
 on:
+  workflow_call:
+    inputs:
+      customer_id:
+        type: string
+        default: 'maxbaby'
+      dry_run:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -15,8 +24,6 @@ on:
         description: 'Plan stock changes but write nothing'
         type: boolean
         default: true
-  schedule:
-    - cron: '30 */3 * * *'   # every 3 hours (PRD §9: 3-6h), offset from segal-sync
 
 jobs:
   bambino-sync:

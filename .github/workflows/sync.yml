@@ -1,8 +1,13 @@
 name: hourly-sync
 
+# Scheduling is centralized in orchestrator.yml — this is called from there
+# (workflow_call) and can still be run by hand (workflow_dispatch).
 on:
-  schedule:
-    - cron: '0 * * * *'   # every hour on the hour (UTC)
+  workflow_call:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       dry_run:

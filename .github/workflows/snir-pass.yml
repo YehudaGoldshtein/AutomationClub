@@ -14,7 +14,19 @@ name: snir-pass
 # and dry-runs) with zero challenges. If GHA ever gets hard-blocked (CAPTCHA /
 # headless fingerprinting), fall back to a self-hosted runner / proxy.
 
+# Scheduling is centralized in orchestrator.yml (workflow_call). Still hand-runnable.
 on:
+  workflow_call:
+    inputs:
+      customer_id:
+        type: string
+        default: 'maxbaby'
+      dry_run:
+        type: boolean
+        default: false
+      headed:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -30,12 +42,10 @@ on:
         description: 'Run the browser headed (debugging only; needs a display — leave off on CI)'
         type: boolean
         default: false
-  schedule:
-    - cron: '35 */6 * * *'   # every 6h, offset from other suppliers' syncs
 
 # Never let two passes overlap (avoids a dedup race double-creating new products).
 concurrency:
-  group: snir-pass-${{ github.event.inputs.customer_id || 'maxbaby' }}
+  group: snir-pass-${{ inputs.customer_id || 'maxbaby' }}
   cancel-in-progress: false
 
 jobs:
@@ -72,12 +82,11 @@ jobs:
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
-          # Manual dispatch honors dry_run (default true). If the schedule is
-          # ever enabled, scheduled runs have no inputs -> default to LIVE.
+          # Honors inputs.dry_run directly (works for both workflow_call from the
+          # orchestrator — default false/live — and manual dispatch — default true).
           CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
           ARGS="snir-pass --customer-id $CUSTOMER_ID"
-          # On a schedule, ${{ inputs.dry_run }} is empty -> live. On manual, honor it.
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.dry_run }}" != "false" ]]; then
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
             ARGS="$ARGS --dry-run"
           fi
           if [[ "${{ inputs.headed }}" == "true" ]]; then

@@ -287,6 +287,18 @@ class TestListProducts:
         products = adapter.list_products()
         assert {p.sku for p in products} == {SKU("X")}
 
+    def test_vendor_filter_excludes_colliding_foreign_sku(self):
+        # The 447 case: a foreign-vendor product shares a SKU with the target vendor.
+        # A vendor-scoped fetch must not return it, so it can never be matched/mispriced.
+        fake = _FakeShopifyApi([
+            _mk_product(1, [_mk_variant(10, 100, "447", 1, price="69.00")], vendor="other-supplier"),
+            _mk_product(2, [_mk_variant(20, 200, "OK-1", 1, price="100.00")], vendor="segal | סגל"),
+        ])
+        adapter = _make_adapter(fake, vendor_filter="segal | סגל")
+        skus = {p.sku for p in adapter.list_products()}
+        assert SKU("447") not in skus       # foreign 447 excluded
+        assert SKU("OK-1") in skus
+
     def test_pagination_follows_link_header(self):
         variants = [
             _mk_variant(10 + i, 1000 + i, f"SKU-{i:03d}", i)

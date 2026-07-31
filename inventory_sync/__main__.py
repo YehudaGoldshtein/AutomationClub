@@ -393,8 +393,12 @@ def cmd_segal_pass(args, log: Logger, cfg: Config) -> int:
     log = log.bind(customer_id=args.customer_id)
     log.info("segal_pass_command_start", dry_run=args.dry_run)
 
+    from inventory_sync.segal_mapping import VENDOR as SEGAL_VENDOR
     source = SegalUnifiedSource(adapter=_build_segal_adapter(log), logger=log)
-    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=None)  # need all products to detect new
+    # Vendor-scoped fetch: only Segal's own store products, so a foreign product
+    # sharing a SKU (e.g. sku 447) can never be matched/mispriced. Scopes stock,
+    # price, missing-at-source AND onboarding in one shot.
+    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=SEGAL_VENDOR)
     store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
     product_store = _build_store_product_store(cfg, log)
 
@@ -433,10 +437,13 @@ def cmd_snir_pass(args, log: Logger, cfg: Config) -> int:
     cross-supplier OOS gate (skip new out-of-stock products) is enforced by
     unified_pass. Requires the `browser` extra + `playwright install chromium`.
     """
+    from inventory_sync.snir_mapping import VENDOR as SNIR_VENDOR
     log = log.bind(customer_id=args.customer_id)
     log.info("snir_pass_command_start", dry_run=args.dry_run, headed=args.headed)
 
-    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=None)  # all products to detect new
+    # Vendor-scoped fetch: only Snir's own store products, so a foreign product
+    # sharing a SKU can never be matched/mispriced (stock, price, missing, onboard).
+    raw_store = _build_shopify_adapter(cfg, log, vendor_filter=SNIR_VENDOR)
     store = _DryRunStore(raw_store, log) if args.dry_run else raw_store
     product_store = _build_store_product_store(cfg, log)
 

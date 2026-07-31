@@ -45,6 +45,7 @@ class Product:
     vendor: str | None = None  # store-side vendor/supplier tag (for dashboard grouping)
     price: Decimal | None = None            # current variant price (for price-sync diff)
     compare_at_price: Decimal | None = None  # current struck-through price (None = not on sale)
+    tags: tuple[str, ...] = ()               # current product tags (for sale-tag reconcile)
 
 
 class ChangeKind(str, Enum):

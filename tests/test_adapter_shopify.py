@@ -137,10 +137,12 @@ class _FakeShopifyApi:
             except ValueError:
                 return httpx.Response(404, text=f"bad product id: {product_id_str}")
             import json as _json
-            data = _json.loads(request.content.decode())
-            new_status = data["product"]["status"]
+            data = _json.loads(request.content.decode())["product"]
             if product_id in self.products:
-                self.products[product_id]["status"] = new_status
+                if "status" in data:
+                    self.products[product_id]["status"] = data["status"]
+                if "tags" in data:
+                    self.products[product_id]["tags"] = data["tags"]
             return httpx.Response(200, json={"product": self.products.get(product_id, {})})
 
         return httpx.Response(404, text=f"unhandled {method} {path}")
@@ -208,13 +210,17 @@ def _mk_product(
     variants: list[dict],
     status: str = "active",
     vendor: str | None = None,
+    tags: str | None = None,
 ) -> dict:
-    return {
+    p = {
         "id": product_id,
         "status": status,
         "vendor": vendor,
         "variants": variants,
     }
+    if tags is not None:
+        p["tags"] = tags
+    return p
 
 
 def _make_adapter(fake: _FakeShopifyApi, **kwargs: Any) -> ShopifyAdapter:
@@ -410,6 +416,24 @@ class TestListProductsPrice:
         fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(11, 111, "A", 5)])])
         p = _make_adapter(fake).list_products()[0]
         assert p.price is None and p.compare_at_price is None
+
+
+class TestProductTags:
+    def test_list_products_reads_tags(self):
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "A", 1)], tags="furniture, segal, supplier-sale")])
+        p = _make_adapter(fake).list_products()[0]
+        assert set(p.tags) == {"furniture", "segal", "supplier-sale"}
+
+    def test_missing_tags_is_empty(self):
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "A", 1)])])
+        assert _make_adapter(fake).list_products()[0].tags == ()
+
+    def test_set_product_tags_writes_them(self):
+        fake = _FakeShopifyApi([_mk_product(1, [_mk_variant(10, 100, "A", 1)], tags="furniture")])
+        adapter = _make_adapter(fake)
+        adapter.list_products()
+        adapter.set_product_tags("1", {"furniture", "supplier-sale", "sale-25"})
+        assert set(t.strip() for t in fake.products[1]["tags"].split(",")) == {"furniture", "supplier-sale", "sale-25"}
 
 
 class TestPublishStatus:

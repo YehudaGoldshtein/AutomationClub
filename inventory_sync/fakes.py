@@ -40,6 +40,11 @@ class InMemoryStore:
     def update_variant_price(self, sku: SKU, price, compare_at) -> None:
         self._products[sku] = replace(self._products[sku], price=price, compare_at_price=compare_at)
 
+    def set_product_tags(self, store_product_id: str, tags) -> None:
+        for sku, p in list(self._products.items()):
+            if p.store_product_id == store_product_id:
+                self._products[sku] = replace(p, tags=tuple(sorted(tags)))
+
     def unpublish(self, sku: SKU) -> None:
         self._products[sku] = replace(self._products[sku], published=False)
 

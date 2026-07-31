@@ -102,6 +102,7 @@ class ShopifyAdapter:
             title = sp.get("title") or None
             vendor = sp.get("vendor") or None
             published = sp.get("status", "active") == "active"
+            tags = tuple(t.strip() for t in (sp.get("tags") or "").split(",") if t.strip())
             for variant in sp.get("variants", []):
                 sku_raw = variant.get("sku")
                 if not sku_raw:
@@ -125,6 +126,7 @@ class ShopifyAdapter:
                         vendor=vendor,
                         price=_to_decimal(variant.get("price")),
                         compare_at_price=_to_decimal(variant.get("compare_at_price")),
+                        tags=tags,
                     )
                 )
 
@@ -211,6 +213,17 @@ class ShopifyAdapter:
             raise ShopifyError(f"variants/{ref.variant_id}.json {resp.status_code}: {resp.text[:200]}")
         self.logger.info("price_updated", sku=sku, price=str(price),
                          compare_at=str(compare_at) if compare_at is not None else None)
+
+    def set_product_tags(self, store_product_id: str, tags) -> None:
+        """PUT the product's full tag set (comma-separated). Caller computes the set
+        (via pricing.reconcile_tags) so other tags are preserved."""
+        body = {"product": {"id": int(store_product_id), "tags": ", ".join(sorted(tags))}}
+        resp = self.client.put(f"/products/{store_product_id}.json", json=body)
+        if resp.status_code not in (200, 201):
+            self.logger.error("set_tags_failed", store_product_id=store_product_id,
+                              status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"products/{store_product_id}.json {resp.status_code}: {resp.text[:200]}")
+        self.logger.info("product_tags_set", store_product_id=store_product_id, tags=sorted(tags))
 
     def unpublish(self, sku: SKU) -> None:
         self._set_product_status(sku, "archived")

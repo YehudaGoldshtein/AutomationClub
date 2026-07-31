@@ -86,6 +86,20 @@ class TestChangeGuard:
         assert pricing.change_too_large(None, D("500")) is False
 
 
+class TestResolveTarget:
+    def test_on_sale_sets_compare_at(self):
+        t = pricing.resolve_target(D("1000"), D("750"))
+        assert t.price == D("750") and t.compare_at == D("1000")
+
+    def test_not_on_sale_has_no_compare_at(self):
+        t = pricing.resolve_target(D("1000"), None)
+        assert t.price == D("1000") and t.compare_at is None
+
+    def test_fake_sale_regular_equals_sale_is_plain_price(self):
+        t = pricing.resolve_target(D("2830"), D("2830"))
+        assert t.price == D("2830") and t.compare_at is None
+
+
 class TestNeedsWrite:
     def test_no_change_skips_write(self):
         t = pricing.TargetPrice(price=D("100"), compare_at=None)

@@ -130,6 +130,7 @@ supplier_settings = Table(
     "supplier_settings", metadata,
     Column("customer_id", String, nullable=False),
     Column("supplier", String, nullable=False),   # 'laura' | 'segal' | 'bambino' | 'snir'
+    # One flag gates the supplier's whole sync (stock + onboarding + price).
     Column("enabled", Boolean, nullable=False, server_default=text("1")),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )

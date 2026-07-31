@@ -55,7 +55,10 @@ class SqlSupplierSettingsStore:
         return {sup: stored.get(sup, True) for sup in suppliers}
 
     def set_enabled(self, customer_id: str, supplier: str, enabled: bool) -> None:
-        """Upsert the flag (used by the CLI toggle + tests; the dashboard writes directly)."""
+        """Upsert the flag (used by the CLI toggle + tests; the dashboard writes directly).
+
+        This single flag gates the supplier's WHOLE sync — stock, onboarding, and
+        price. Price rides it: sync off → price off; sync on → price on."""
         now = datetime.now(timezone.utc)
         insert = pg_insert if self.engine.dialect.name == "postgresql" else sqlite_insert
         stmt = insert(supplier_settings).values(

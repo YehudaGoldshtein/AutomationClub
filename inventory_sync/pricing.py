@@ -90,6 +90,18 @@ class TargetPrice:
     compare_at: Decimal | None = None
 
 
+def resolve_target(regular, sale) -> TargetPrice:
+    """Extracted (regular, sale) → the store TargetPrice.
+
+    On sale (sale < regular): sell at `sale`, strike through `regular`. Otherwise
+    sell at `regular` with no strikethrough. Sale is decided by the numbers, so a
+    fake flag (regular == sale) yields a plain price."""
+    on, _ = sale_signal(regular, sale)
+    if on:
+        return TargetPrice(price=Decimal(sale), compare_at=Decimal(regular))
+    return TargetPrice(price=Decimal(regular), compare_at=None)
+
+
 def needs_write(current_price, current_compare_at, target: TargetPrice) -> bool:
     """Write-avoidance: only touch Shopify when price OR compare_at actually differs."""
     return current_price != target.price or current_compare_at != target.compare_at

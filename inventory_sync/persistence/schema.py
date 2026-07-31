@@ -122,6 +122,22 @@ customers = Table(
 Index("ix_customers_last_synced_at", customers.c.last_synced_at)
 
 
+# --- Per-customer per-supplier sync toggle (dashboard-controlled) ---
+# The orchestrator reads this to skip suppliers the owner turned off (e.g. a
+# supplier temporarily pulled from the site). A MISSING row means enabled — the
+# default is on, so a brand-new supplier syncs without needing a row written.
+supplier_settings = Table(
+    "supplier_settings", metadata,
+    Column("customer_id", String, nullable=False),
+    Column("supplier", String, nullable=False),   # 'laura' | 'segal' | 'bambino' | 'snir'
+    Column("enabled", Boolean, nullable=False, server_default=text("1")),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+supplier_settings.append_constraint(
+    _PK(supplier_settings.c.customer_id, supplier_settings.c.supplier)
+)
+
+
 # --- Shared vendor snapshot cache ---
 # Global: one row per (vendor, product). Many customers can read the same row.
 # TTL gate is applied in code (vendor_scan_pass), not in the schema.

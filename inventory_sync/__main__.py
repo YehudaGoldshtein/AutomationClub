@@ -59,6 +59,10 @@ from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
 from inventory_sync.persistence.migrations import add_store_products_lifecycle_columns
 from inventory_sync.persistence.store_product_store import SqlStoreProductStore
+from inventory_sync.persistence.supplier_settings_store import (
+    SUPPLIERS,
+    SqlSupplierSettingsStore,
+)
 from inventory_sync.persistence.sync_run_store import SqlSyncRunStore
 from inventory_sync.persistence.vendor_snapshot_cache import SqlVendorSnapshotCache
 from inventory_sync.policies import DefaultStockPolicy
@@ -547,6 +551,30 @@ def cmd_bambino_delete_existing(args, log: Logger, cfg: Config) -> int:
     return 1 if summary.errors else 0
 
 
+def cmd_supplier_flags(args, log: Logger, cfg: Config) -> int:
+    """Print `<supplier>=true|false` per supplier — the orchestrator preflight reads this.
+
+    Output is GITHUB_OUTPUT-shaped (`name=value`) so a workflow step can append it
+    straight to $GITHUB_OUTPUT and gate each supplier job on it.
+    """
+    store = SqlSupplierSettingsStore(engine=_build_engine(cfg), logger=log)
+    store.create_schema()
+    flags = store.enabled_map(args.customer_id)
+    for supplier, enabled in flags.items():
+        print(f"{supplier}={'true' if enabled else 'false'}")
+    log.info("supplier_flags", customer_id=args.customer_id, flags=flags)
+    return 0
+
+
+def cmd_supplier_set(args, log: Logger, cfg: Config) -> int:
+    """Enable/disable a supplier's sync for a tenant (also settable from the dashboard)."""
+    store = SqlSupplierSettingsStore(engine=_build_engine(cfg), logger=log)
+    store.create_schema()
+    store.set_enabled(args.customer_id, args.supplier, args.enabled)
+    print(f"supplier-set: {args.supplier} enabled={args.enabled} customer={args.customer_id}")
+    return 0
+
+
 def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     """Activate approved draft products (draft → active) for one customer."""
     log = log.bind(customer_id=args.customer_id)
@@ -874,6 +902,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     rec.add_argument("--customer-id", required=True, help="Tenant to reconcile")
 
+    sf = sub.add_parser(
+        "supplier-flags",
+        help="Print each supplier's enabled state (for the orchestrator preflight)",
+    )
+    sf.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
+
+    ss = sub.add_parser(
+        "supplier-set",
+        help="Enable/disable a supplier's sync for a tenant (dashboard writes this too)",
+    )
+    ss.add_argument("--customer-id", default="maxbaby", help="Tenant (default: maxbaby)")
+    ss.add_argument("--supplier", required=True, choices=SUPPLIERS, help="Supplier key")
+    grp = ss.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--enable", dest="enabled", action="store_true", help="Turn the supplier ON")
+    grp.add_argument("--disable", dest="enabled", action="store_false", help="Turn the supplier OFF")
+
     args = parser.parse_args(argv)
     command = args.command or "bootstrap"
 
@@ -905,6 +949,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_bambino_delete_existing(args, log, cfg)
     if command == "reconcile":
         return cmd_reconcile(args, log, cfg)
+    if command == "supplier-flags":
+        return cmd_supplier_flags(args, log, cfg)
+    if command == "supplier-set":
+        return cmd_supplier_set(args, log, cfg)
 
     parser.print_help()
     return 1

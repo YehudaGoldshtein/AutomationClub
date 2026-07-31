@@ -15,7 +15,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from inventory_sync.log import Logger, get
-from inventory_sync.persistence.schema import metadata, supplier_settings
+from inventory_sync.persistence.schema import supplier_settings
 
 # The suppliers the orchestrator knows about (stable keys used by workflows).
 SUPPLIERS = ("laura", "segal", "bambino", "snir")
@@ -27,7 +27,10 @@ class SqlSupplierSettingsStore:
     logger: Logger = field(default_factory=lambda: get("persistence.supplier_settings"))
 
     def create_schema(self) -> None:
-        metadata.create_all(self.engine)
+        # Create ONLY this table (checkfirst = IF NOT EXISTS). Avoids
+        # metadata.create_all's full reflection, which can stall the orchestrator
+        # preflight on a cold Neon connection.
+        supplier_settings.create(self.engine, checkfirst=True)
 
     def is_enabled(self, customer_id: str, supplier: str) -> bool:
         """True unless a row explicitly disables it (missing row = enabled)."""

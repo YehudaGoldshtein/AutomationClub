@@ -25,6 +25,8 @@ from inventory_sync.laura_mapping import (
     to_product_draft,
 )
 from inventory_sync.missing_source import reconcile_missing_at_source
+from inventory_sync.pricing import resolve_target
+from inventory_sync.pricing_sync import reconcile_prices
 
 # Skip missing-at-source flagging if the uploaded file covers less than this
 # fraction of existing Laura products — it's probably a partial/wrong upload.
@@ -39,6 +41,9 @@ class IngestSummary:
     skipped_existing: int = 0
     flagged_review: int = 0
     flagged_missing: int = 0    # Laura products gone from the file entirely (missing-at-source)
+    prices_updated: int = 0     # existing products repriced from the new Excel
+    prices_would_update: int = 0
+    prices_blocked: int = 0
     errors: int = 0            # products that failed to create/archive (isolated, batch continues)
     would_create: int = 0      # dry-run: products that would be created
     archived: int = 0          # discontinued ("אזל") products taken down from the site
@@ -147,7 +152,8 @@ def _create_and_record(store, product_store, customer_id, group, draft, sub_name
                 needs_review_reason=review_reason)
 
 
-def ingest_products(rows, store, product_store, customer_id: str, logger, dry_run: bool = False) -> IngestSummary:
+def ingest_products(rows, store, product_store, customer_id: str, logger, dry_run: bool = False,
+                    sync_prices: bool = False, price_dry_run: bool = True) -> IngestSummary:
     """Group rows, take down discontinued items, create new products as drafts.
 
     `מלאי זמין` = "אזל" (discontinued) rows are never uploaded, and are archived
@@ -252,9 +258,22 @@ def ingest_products(rows, store, product_store, customer_id: str, logger, dry_ru
                 product_store, existing, file_skus, (VENDOR,),
                 customer_id, logger, dry_run=dry_run)
 
+    # --- price sync (Excel upload only): reprice existing Laura products from the
+    # new file. Target = the Excel price (the base×1.77 shelf price). Baseline
+    # unless price is live; write-avoidance + >60% guard + Axiom audit apply. ---
+    if sync_prices:
+        targets = {str(r.sku): resolve_target(r.recommended_price, None)
+                   for r in rows if not r.discontinued and r.recommended_price is not None}
+        psum = reconcile_prices(store, existing, targets, logger,
+                                dry_run=dry_run or price_dry_run)
+        summary.prices_updated = psum.updated
+        summary.prices_would_update = psum.would_update
+        summary.prices_blocked = psum.blocked
+
     logger.info("ingest_summary", customer_id=customer_id, created=summary.created,
                 skipped_existing=summary.skipped_existing, flagged_review=summary.flagged_review,
                 errors=summary.errors, would_create=summary.would_create,
                 archived=summary.archived, would_archive=summary.would_archive,
-                flagged_missing=summary.flagged_missing, dry_run=dry_run)
+                flagged_missing=summary.flagged_missing, prices_updated=summary.prices_updated,
+                prices_would_update=summary.prices_would_update, dry_run=dry_run)
     return summary

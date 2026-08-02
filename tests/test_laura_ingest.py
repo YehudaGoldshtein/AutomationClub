@@ -114,9 +114,35 @@ C = "maxbaby"
 LOG = get("test")
 
 
-def _laura(sku: str) -> Product:
+def _laura(sku: str, price=None) -> Product:
     return Product(sku=SKU(sku), vendor_product_id=VendorProductId(sku), stock=StockLevel(1),
-                   published=True, store_product_id=sku, vendor=VENDOR)
+                   published=True, store_product_id=sku, vendor=VENDOR,
+                   price=Decimal(str(price)) if price is not None else None)
+
+
+class TestIngestPriceSync:
+    """Laura repricing runs during ingest (Excel upload) only. Target = the Excel
+    price (which is the base×1.77 shelf price). Baseline unless price is live."""
+
+    def test_reprices_existing_when_live(self):
+        store, ps = _stores([_laura("L-1", price="100")])
+        summary = ingest_products([_row("L-1", price="90")], store, ps, C, LOG,
+                                  sync_prices=True, price_dry_run=False)
+        assert summary.prices_updated == 1
+        assert store.get(SKU("L-1")).price == Decimal("90")
+
+    def test_baseline_default_does_not_write(self):
+        store, ps = _stores([_laura("L-1", price="100")])
+        summary = ingest_products([_row("L-1", price="90")], store, ps, C, LOG,
+                                  sync_prices=True)   # price_dry_run defaults True
+        assert summary.prices_would_update == 1 and summary.prices_updated == 0
+        assert store.get(SKU("L-1")).price == Decimal("100")
+
+    def test_off_by_default(self):
+        store, ps = _stores([_laura("L-1", price="100")])
+        summary = ingest_products([_row("L-1", price="90")], store, ps, C, LOG)
+        assert summary.prices_updated == 0 and summary.prices_would_update == 0
+        assert store.get(SKU("L-1")).price == Decimal("100")
 
 
 class TestIngestMissingAtSource:

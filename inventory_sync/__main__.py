@@ -324,13 +324,16 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
 
     store = _build_shopify_adapter(cfg, log)
     product_store = _build_store_product_store(cfg, log)
-    summary = ingest_products(rows, store, product_store, args.customer_id, log, dry_run=args.dry_run)
+    summary = ingest_products(rows, store, product_store, args.customer_id, log, dry_run=args.dry_run,
+                              sync_prices=args.sync_prices, price_dry_run=not args.price_live)
 
     print(
         f"ingest: parsed={len(rows)} created={summary.created} "
         f"skipped_existing={summary.skipped_existing} flagged_review={summary.flagged_review} "
         f"archived={summary.archived} would_archive={summary.would_archive} "
-        f"errors={summary.errors} would_create={summary.would_create} dry_run={summary.dry_run}"
+        f"errors={summary.errors} would_create={summary.would_create} "
+        f"prices_updated={summary.prices_updated} prices_would_update={summary.prices_would_update} "
+        f"dry_run={summary.dry_run}"
     )
     return 0
 
@@ -846,6 +849,10 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--customer-id", required=True, help="Tenant the blob belongs to")
     ing.add_argument("--dry-run", action="store_true",
                      help="Parse + group + report what would be created, but write nothing")
+    ing.add_argument("--sync-prices", action="store_true",
+                     help="Also reprice existing Laura products from this Excel (base×1.77 shelf price)")
+    ing.add_argument("--price-live", action="store_true",
+                     help="Write price changes (default: price is dry-run/baseline)")
 
     seg = sub.add_parser(
         "segal-ingest",

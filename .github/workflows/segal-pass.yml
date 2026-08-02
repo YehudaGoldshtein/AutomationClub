@@ -78,8 +78,8 @@ jobs:
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
           # Scheduled runs are live for stock/onboarding; manual dispatch honors dry_run.
-          # --sync-prices adds a price BASELINE only (no --price-live here → never
-          # writes a price; reports would-update counts in the log).
+          # --sync-prices reconciles prices; --price-live makes those writes real
+          # (without it, price is a dry baseline that only logs would-updates).
           CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
           ARGS="segal-pass --customer-id $CUSTOMER_ID"
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then ARGS="$ARGS --dry-run"; fi

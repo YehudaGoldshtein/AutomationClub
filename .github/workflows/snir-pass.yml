@@ -27,6 +27,9 @@ on:
       headed:
         type: boolean
         default: false
+      sync_prices:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -40,6 +43,10 @@ on:
         default: true
       headed:
         description: 'Run the browser headed (debugging only; needs a display — leave off on CI)'
+        type: boolean
+        default: false
+      sync_prices:
+        description: 'Also compute a price baseline (dry — never writes prices here)'
         type: boolean
         default: false
 
@@ -91,5 +98,9 @@ jobs:
           fi
           if [[ "${{ inputs.headed }}" == "true" ]]; then
             ARGS="$ARGS --headed"
+          fi
+          # Price baseline only (no --price-live → never writes a price here).
+          if [[ "${{ inputs.sync_prices }}" == "true" ]]; then
+            ARGS="$ARGS --sync-prices"
           fi
           python -m inventory_sync $ARGS

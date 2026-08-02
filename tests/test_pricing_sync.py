@@ -74,6 +74,31 @@ class TestReconcilePrices:
         assert s.would_update == 1 and s.updated == 0 and store.writes == []
 
 
+class _RecLog:
+    """Captures structured log events so we can assert on their fields."""
+    def __init__(self): self.events = []
+    def info(self, event, **kw): self.events.append((event, dict(kw)))
+    def warning(self, event, **kw): self.events.append((event, dict(kw)))
+    def bind(self, **kw): return self
+
+
+class TestAuditLog:
+    def test_price_update_records_old_and_new(self):
+        rec = _RecLog()
+        reconcile_prices(FakeStore(), [_p("A", "100")], {"A": _t("90", "100")}, rec)
+        upd = [kw for e, kw in rec.events if e == "price_update"]
+        assert upd, "expected a price_update event"
+        assert upd[0]["was"] == "100" and upd[0]["price"] == "90"
+        assert upd[0]["compare_at"] == "100"
+        assert upd[0]["pct"] == -10   # % change → radical moves are one Axiom filter
+
+    def test_price_update_pct_none_when_no_previous(self):
+        rec = _RecLog()
+        reconcile_prices(FakeStore(), [_p("A", None)], {"A": _t("500")}, rec)
+        upd = [kw for e, kw in rec.events if e == "price_update"][0]
+        assert upd["was"] is None and upd["pct"] is None
+
+
 class TestTagSync:
     def test_sale_start_adds_tags(self):
         store, s = _run([_p("A", "800", spid="7", tags=("segal",))], {"A": _t("80", "100")})

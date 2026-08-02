@@ -14,6 +14,9 @@ on:
       dry_run:
         type: boolean
         default: false
+      sync_prices:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -25,6 +28,10 @@ on:
         description: 'Plan changes but write nothing'
         type: boolean
         default: true
+      sync_prices:
+        description: 'Also compute a price baseline (dry — never writes prices here)'
+        type: boolean
+        default: false
 
 # Never let two passes overlap (avoids a dedup race double-creating new products).
 concurrency:
@@ -63,10 +70,11 @@ jobs:
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
-          # Scheduled runs are live; manual dispatch honors dry_run.
+          # Scheduled runs are live for stock/onboarding; manual dispatch honors dry_run.
+          # --sync-prices adds a price BASELINE only (no --price-live here → never
+          # writes a price; reports would-update counts in the log).
           CUSTOMER_ID="${{ inputs.customer_id }}"; CUSTOMER_ID="${CUSTOMER_ID:-maxbaby}"
-          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
-            python -m inventory_sync segal-pass --customer-id "$CUSTOMER_ID" --dry-run
-          else
-            python -m inventory_sync segal-pass --customer-id "$CUSTOMER_ID"
-          fi
+          ARGS="segal-pass --customer-id $CUSTOMER_ID"
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then ARGS="$ARGS --dry-run"; fi
+          if [[ "${{ inputs.sync_prices }}" == "true" ]]; then ARGS="$ARGS --sync-prices"; fi
+          python -m inventory_sync $ARGS

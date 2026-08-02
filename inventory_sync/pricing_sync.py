@@ -53,7 +53,14 @@ def reconcile_prices(store, store_products, targets: dict[str, TargetPrice], log
             else:
                 store.update_variant_price(p.sku, target.price, target.compare_at)
                 summary.updated += 1
-            logger.info("price_update", sku=str(p.sku), price=str(target.price),
+            # Full before→after audit (ships to Axiom in prod). `pct` makes radical
+            # moves a one-line filter: price_update where abs(pct) > N.
+            pct = (int(round(float((target.price - p.price) / p.price * 100)))
+                   if p.price not in (None, 0) else None)
+            logger.info("price_update", sku=str(p.sku),
+                        was=str(p.price) if p.price is not None else None,
+                        price=str(target.price), pct=pct,
+                        was_compare_at=str(p.compare_at_price) if p.compare_at_price is not None else None,
                         compare_at=str(target.compare_at) if target.compare_at is not None else None,
                         dry_run=dry_run)
     # --- product-level sale tags (supplier-sale / sale-<pct>) drive the collection ---

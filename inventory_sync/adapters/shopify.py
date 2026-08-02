@@ -231,6 +231,24 @@ class ShopifyAdapter:
     def republish(self, sku: SKU) -> None:
         self._set_product_status(sku, "active")
 
+    def republish_by_id(self, store_product_id: str) -> None:
+        """Set a product ACTIVE by its store product id (unarchive/undraft).
+
+        Unlike republish(sku), this resolves nothing through the variant cache —
+        so it works on ARCHIVED products, which the default product listing omits
+        (`republish` would fail to find their ref). Used by the dashboard-driven
+        unarchive reconcile, where the click already carries the product id.
+        """
+        log = self.logger.bind(store_product_id=store_product_id, status="active")
+        resp = self.client.put(
+            f"/products/{store_product_id}.json",
+            json={"product": {"id": int(store_product_id), "status": "active"}},
+        )
+        if resp.status_code not in (200, 201):
+            log.error("product_status_update_failed", status=resp.status_code, body=resp.text[:200])
+            raise ShopifyError(f"products/{store_product_id}.json {resp.status_code}: {resp.text[:200]}")
+        log.info("product_republished_by_id")
+
     # --- net-new product creation (Laura upload) ---
 
     def create_product(self, draft: ProductDraft) -> CreatedProduct:

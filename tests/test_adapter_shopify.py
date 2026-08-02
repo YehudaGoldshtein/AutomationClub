@@ -138,12 +138,13 @@ class _FakeShopifyApi:
                 return httpx.Response(404, text=f"bad product id: {product_id_str}")
             import json as _json
             data = _json.loads(request.content.decode())["product"]
-            if product_id in self.products:
-                if "status" in data:
-                    self.products[product_id]["status"] = data["status"]
-                if "tags" in data:
-                    self.products[product_id]["tags"] = data["tags"]
-            return httpx.Response(200, json={"product": self.products.get(product_id, {})})
+            if product_id not in self.products:
+                return httpx.Response(404, text=f"no product {product_id}")
+            if "status" in data:
+                self.products[product_id]["status"] = data["status"]
+            if "tags" in data:
+                self.products[product_id]["tags"] = data["tags"]
+            return httpx.Response(200, json={"product": self.products[product_id]})
 
         return httpx.Response(404, text=f"unhandled {method} {path}")
 
@@ -838,6 +839,38 @@ class TestAddToCollection:
             {"product_id": int(c["product_id"]), "collection_id": int(c["collection_id"])}
             for c in fake.collects
         ]
+
+
+class TestRepublishById:
+    """republish_by_id sets a product ACTIVE by its store product id — no SKU-cache
+    resolution, so it works on ARCHIVED products the default listing omits."""
+
+    def test_unarchives_by_product_id(self):
+        fake = _FakeShopifyApi([
+            _mk_product(555, [_mk_variant(10, 100, "X-1", 3)], status="archived"),
+        ])
+        adapter = _make_adapter(fake)  # note: no list_products() prime — id path needs no cache
+
+        adapter.republish_by_id("555")
+
+        assert fake.products[555]["status"] == "active"
+
+    def test_undrafts_by_product_id(self):
+        fake = _FakeShopifyApi([
+            _mk_product(556, [_mk_variant(11, 101, "X-2", 3)], status="draft"),
+        ])
+        adapter = _make_adapter(fake)
+
+        adapter.republish_by_id("556")
+
+        assert fake.products[556]["status"] == "active"
+
+    def test_raises_on_unknown_product(self):
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+
+        with pytest.raises(ShopifyError):
+            adapter.republish_by_id("999999")
 
 
 class TestShopifySatisfiesStoreContract(StoreContract):

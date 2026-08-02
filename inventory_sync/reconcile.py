@@ -25,6 +25,13 @@ class RejectSummary:
     deleted_product_ids: list[str] = field(default_factory=list)
 
 
+@dataclass
+class UnarchiveSummary:
+    unarchived: int = 0
+    errors: int = 0
+    unarchived_product_ids: list[str] = field(default_factory=list)
+
+
 def reconcile_approved_drafts(store, product_store, customer_id: str, logger) -> ReconcileSummary:
     """Republish every approved draft (status=active) and mark it active in the DB."""
     approved = product_store.list_approved_drafts(customer_id)
@@ -91,4 +98,35 @@ def reconcile_rejected_drafts(store, product_store, customer_id: str, logger) ->
 
     logger.info("reconcile_reject_summary", customer_id=customer_id,
                 deleted=summary.deleted, errors=summary.errors)
+    return summary
+
+
+def reconcile_unarchive_requests(store, request_store, customer_id: str, logger) -> UnarchiveSummary:
+    """Republish (status→active) every product the dashboard flagged for unarchive.
+
+    Drains the unarchive_requests queue: republish by product id (works on archived
+    products, unlike republish(sku)) then drop the intent row. A failure leaves the
+    row in place so the next run retries it, and never aborts the others.
+    """
+    pending = request_store.list_pending(customer_id)
+    if not pending:
+        logger.info("reconcile_unarchive_none", customer_id=customer_id)
+        return UnarchiveSummary()
+
+    summary = UnarchiveSummary()
+    for product_id in pending:
+        try:
+            store.republish_by_id(product_id)
+            request_store.mark_done(customer_id, product_id)
+        except Exception:
+            logger.exception("reconcile_unarchive_failed",
+                             customer_id=customer_id, store_product_id=product_id)
+            summary.errors += 1
+            continue
+        summary.unarchived += 1
+        summary.unarchived_product_ids.append(product_id)
+        logger.info("reconcile_unarchived", customer_id=customer_id, store_product_id=product_id)
+
+    logger.info("reconcile_unarchive_summary", customer_id=customer_id,
+                unarchived=summary.unarchived, errors=summary.errors)
     return summary

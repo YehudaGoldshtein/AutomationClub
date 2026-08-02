@@ -12,11 +12,14 @@ from inventory_sync.domain import SKU, ProductDraft, VariantSpec
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.log import get
 from inventory_sync.persistence.store_product_store import NewStoreProduct, SqlStoreProductStore
+from inventory_sync.persistence.unarchive_request_store import SqlUnarchiveRequestStore
 from inventory_sync.reconcile import (
     RejectSummary,
     ReconcileSummary,
+    UnarchiveSummary,
     reconcile_approved_drafts,
     reconcile_rejected_drafts,
+    reconcile_unarchive_requests,
 )
 
 C = "maxbaby"
@@ -116,3 +119,51 @@ class TestRejectReconcile:
     def test_no_rejected_is_noop(self):
         store, ps = _stores()
         assert reconcile_rejected_drafts(store, ps, C, LOG) == RejectSummary()
+
+
+def _req_store():
+    engine = sqlalchemy.create_engine("sqlite:///:memory:")
+    rs = SqlUnarchiveRequestStore(engine=engine, logger=get("test"))
+    rs.create_schema()
+    return rs
+
+
+class TestUnarchiveReconcile:
+    def test_republishes_requested_product_and_clears_intent(self):
+        store, ps = _stores()
+        pid = _create_draft(store, ps, ["A-1"], approve=False)  # archived/draft in store
+        assert store.get(SKU("A-1")).published is False
+        rs = _req_store()
+        rs.add(C, pid)
+
+        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+
+        assert summary.unarchived == 1
+        assert store.get(SKU("A-1")).published is True   # now live
+        assert rs.list_pending(C) == []                  # intent drained
+
+    def test_multi_variant_product_unarchived_once(self):
+        store, ps = _stores()
+        pid = _create_draft(store, ps, ["A-1", "A-2"], title="סט", approve=False)
+        rs = _req_store()
+        rs.add(C, pid)
+
+        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+
+        assert summary.unarchived == 1
+        assert store.get(SKU("A-1")).published is True
+        assert store.get(SKU("A-2")).published is True
+
+    def test_no_requests_is_noop(self):
+        store, _ = _stores()
+        assert reconcile_unarchive_requests(store, _req_store(), C, LOG) == UnarchiveSummary()
+
+    def test_error_isolates_and_keeps_intent(self):
+        store, _ = _stores()  # store has no product 88888 → republish_by_id raises
+        rs = _req_store()
+        rs.add(C, "88888")
+
+        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+
+        assert summary.unarchived == 0 and summary.errors == 1
+        assert rs.list_pending(C) == ["88888"]  # not dropped on failure → retried next run

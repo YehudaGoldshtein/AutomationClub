@@ -51,6 +51,13 @@ class InMemoryStore:
     def republish(self, sku: SKU) -> None:
         self._products[sku] = replace(self._products[sku], published=True)
 
+    def republish_by_id(self, store_product_id: str) -> None:
+        matched = [sku for sku, p in self._products.items() if p.store_product_id == store_product_id]
+        if not matched:
+            raise KeyError(f"no product {store_product_id}")  # real adapter 404s
+        for sku in matched:
+            self._products[sku] = replace(self._products[sku], published=True)
+
     def get(self, sku: SKU) -> Product:
         return self._products[sku]
 

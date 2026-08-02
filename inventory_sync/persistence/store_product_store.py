@@ -52,6 +52,7 @@ class StoreProductRecord:
     needs_review: bool
     needs_review_reason: str | None
     missing_at_source: bool
+    unarchive_candidate: bool
     updated_at: datetime
 
 
@@ -283,6 +284,35 @@ class SqlStoreProductStore:
             self.logger.info("store_product_missing_cleared", customer_id=customer_id,
                              store_product_id=store_product_id)
 
+    def set_unarchive_candidates(self, customer_id: str, candidate_skus) -> None:
+        """Mirror the sync's unarchive-candidate SKU set onto store_products.
+
+        Replace-set per run: flag the given SKUs, clear any previously-flagged SKU no
+        longer in the set. Only rows whose flag actually changes are written (so the
+        dashboard's `updated_at` isn't churned every sync). Scoped to the customer.
+        """
+        cand = {str(s) for s in candidate_skus}
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as session:
+            with session.begin():
+                # Clear rows flagged last run that dropped out of the set.
+                clear = update(store_products).where(
+                    store_products.c.customer_id == customer_id,
+                    store_products.c.unarchive_candidate.is_(True),
+                )
+                if cand:
+                    clear = clear.where(store_products.c.sku.notin_(cand))
+                session.execute(clear.values(unarchive_candidate=False, updated_at=now))
+                # Flag the current set (only rows not already flagged).
+                if cand:
+                    session.execute(
+                        update(store_products).where(
+                            store_products.c.customer_id == customer_id,
+                            store_products.c.sku.in_(cand),
+                            store_products.c.unarchive_candidate.is_(False),
+                        ).values(unarchive_candidate=True, updated_at=now)
+                    )
+
     def _set_missing_by_product(self, customer_id: str, store_product_id: str, value: bool,
                                 now: datetime, only_flagged: bool = False) -> int:
         """Set missing_at_source on every row of a product; returns rows affected."""
@@ -326,5 +356,6 @@ def _to_record(row) -> StoreProductRecord:
         needs_review=bool(row["needs_review"]),
         needs_review_reason=row["needs_review_reason"],
         missing_at_source=bool(row["missing_at_source"]),
+        unarchive_candidate=bool(row["unarchive_candidate"]),
         updated_at=row["updated_at"],
     )

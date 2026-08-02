@@ -20,6 +20,8 @@ _STORE_PRODUCTS_LIFECYCLE: list[tuple[str, dict[str, str]]] = [
     ("vendor", {"postgresql": "VARCHAR", "sqlite": "TEXT"}),  # nullable; store vendor/supplier tag
     # Dashboard contract: live product no longer in supplier catalog (missing-at-source view).
     ("missing_at_source", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
+    # Dashboard contract: archived product back in stock at the supplier (unarchive tab).
+    ("unarchive_candidate", {"postgresql": "BOOLEAN NOT NULL DEFAULT FALSE", "sqlite": "BOOLEAN NOT NULL DEFAULT 0"}),
 ]
 
 

@@ -166,6 +166,50 @@ class TestMissingAtSource:
         assert store.get(C, "D-2").missing_at_source is False
 
 
+class TestUnarchiveCandidate:
+    """`unarchive_candidate` mirrors the sync's candidate set onto store_products so
+    the dashboard can list candidates the same way it lists missing_at_source.
+    Replace-set semantics: each run sets the flag to reflect the current set."""
+
+    def test_defaults_false(self, store):
+        store.upsert_many(C, [_product("A-1")])
+        assert store.get(C, "A-1").unarchive_candidate is False
+
+    def test_sets_flag_for_candidate_skus(self, store):
+        store.upsert_many(C, [_product("A-1"), _product("A-2")])
+        store.set_unarchive_candidates(C, {"A-1"})
+        assert store.get(C, "A-1").unarchive_candidate is True
+        assert store.get(C, "A-2").unarchive_candidate is False
+
+    def test_clears_skus_no_longer_candidates(self, store):
+        store.upsert_many(C, [_product("A-1"), _product("A-2")])
+        store.set_unarchive_candidates(C, {"A-1", "A-2"})
+        store.set_unarchive_candidates(C, {"A-1"})           # A-2 dropped off
+        assert store.get(C, "A-1").unarchive_candidate is True
+        assert store.get(C, "A-2").unarchive_candidate is False
+
+    def test_empty_set_clears_all(self, store):
+        store.upsert_many(C, [_product("A-1")])
+        store.set_unarchive_candidates(C, {"A-1"})
+        store.set_unarchive_candidates(C, set())             # nothing is a candidate now
+        assert store.get(C, "A-1").unarchive_candidate is False
+
+    def test_scoped_per_customer(self, store):
+        store.upsert_many(C, [_product("A-1")])
+        store.upsert_many(OTHER, [_product("A-1")])
+        store.set_unarchive_candidates(C, {"A-1"})           # must not touch OTHER
+        assert store.get(C, "A-1").unarchive_candidate is True
+        assert store.get(OTHER, "A-1").unarchive_candidate is False
+
+    def test_does_not_touch_other_lifecycle_fields(self, store):
+        store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
+                                         needs_review_reason="no_image")])
+        store.set_unarchive_candidates(C, {"D-1"})
+        rec = store.get(C, "D-1")
+        assert rec.unarchive_candidate is True
+        assert rec.status == "draft" and rec.needs_review_reason == "no_image"
+
+
 class TestListPending:
     def test_lists_only_unapproved_drafts(self, store):
         store.write_pending(C, [_pending("D-1", pid="901"), _pending("D-2", pid="902")])
@@ -233,7 +277,8 @@ class TestMigration:
         engine = self._legacy_engine()
         added = add_store_products_lifecycle_columns(engine)
         assert set(added) == {"status", "approved", "approved_at", "is_new_collection",
-                              "needs_review", "needs_review_reason", "vendor", "missing_at_source"}
+                              "needs_review", "needs_review_reason", "vendor", "missing_at_source",
+                              "unarchive_candidate"}
         rec = SqlStoreProductStore(engine=engine, logger=get("test")).get("maxbaby", "OLD-1")
         assert rec.status == "active"   # pre-existing live products are not swept into review
         assert rec.approved is True

@@ -50,6 +50,7 @@ class _CatalogAwareSupplier(Protocol):
 
 class _StoreProductStore(Protocol):
     def upsert_many(self, customer_id: str, products) -> None: ...
+    def set_unarchive_candidates(self, customer_id: str, candidate_skus) -> None: ...
 
 
 def run_sync_pass(
@@ -141,6 +142,14 @@ def run_sync_pass(
 
     # 8. Persist new state + run.
     item_state_store.set_active(customer_id, vendor_name, STATE_KEY_UNARCHIVE_CANDIDATE, current)
+    # Mirror the same candidate set onto store_products so the dashboard's unarchive
+    # tab can list them (one boolean, like missing_at_source) instead of joining the
+    # internal item_state delta table.
+    if store_product_store is not None:
+        try:
+            store_product_store.set_unarchive_candidates(customer_id, current)
+        except Exception:
+            log.exception("unarchive_candidate_flag_failed")
     try:
         sync_run_store.save(run, customer_id=customer_id)
     except Exception:

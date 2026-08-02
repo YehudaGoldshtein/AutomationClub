@@ -189,6 +189,9 @@ store_products = Table(
     # Dashboard contract: a live store product no longer in the supplier catalog.
     # The dashboard filters on this boolean for its "missing-at-source → delete" view.
     Column("missing_at_source", Boolean, nullable=False, server_default=text("0")),
+    # Dashboard contract: an archived store product back in stock at the supplier —
+    # the "unarchive" tab lists these; the user's click sets status='unarchive_requested'.
+    Column("unarchive_candidate", Boolean, nullable=False, server_default=text("0")),
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))

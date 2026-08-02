@@ -255,6 +255,16 @@ class TestPriceSync:
         assert s.prices_would_update == 1 and s.prices_updated == 0
         assert store.get(SKU("E-1")).price == Decimal("100")
 
+    def test_price_dry_run_while_stock_is_live(self):
+        # The baseline mode: stock syncs live, price stays dry — in one run.
+        store, ps = _stores([_priced("E-1", 100, "1")])
+        s = unified_pass(FakeSource([Item("E-1", price=90, stock_count=9)]), store, ps,
+                         DefaultStockPolicy(), C, LOG, sync_prices=True, price_dry_run=True)
+        assert s.prices_would_update == 1 and s.prices_updated == 0
+        assert store.get(SKU("E-1")).price == Decimal("100")   # price untouched
+        assert s.stock_changes_applied == 1                    # but stock IS live
+        assert store.get(SKU("E-1")).stock == StockLevel(9)
+
 
 class TestErrorIsolation:
     def test_create_error_isolated(self):

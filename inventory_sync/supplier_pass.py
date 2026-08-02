@@ -133,7 +133,7 @@ def _create_with_salvage(source, store, product_store, customer_id, item, draft,
 def unified_pass(source: UnifiedSource, store, product_store, policy, customer_id: str, logger,
                  *, dry_run: bool = False, today: date | None = None,
                  on_new_drafts: Callable[[list[str]], None] | None = None,
-                 sync_prices: bool = False) -> UnifiedPassSummary:
+                 sync_prices: bool = False, price_dry_run: bool = False) -> UnifiedPassSummary:
     """One pass: stock-sync existing supplier products + onboard new in-stock ones."""
     summary = UnifiedPassSummary(dry_run=dry_run)
     _ = today or date.today()
@@ -177,7 +177,10 @@ def unified_pass(source: UnifiedSource, store, product_store, policy, customer_i
             t = source.price_target(it) if s else None
             if t is not None:
                 targets[s] = t
-        psum = reconcile_prices(store, store_products, targets, logger, dry_run=dry_run)
+        # Price stays dry when the whole pass is dry OR price is explicitly held dry
+        # (baseline mode: stock/onboarding live, price dry until approved).
+        psum = reconcile_prices(store, store_products, targets, logger,
+                                dry_run=dry_run or price_dry_run)
         summary.prices_updated = psum.updated
         summary.prices_would_update = psum.would_update
         summary.prices_blocked = psum.blocked

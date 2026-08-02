@@ -413,7 +413,7 @@ def cmd_segal_pass(args, log: Logger, cfg: Config) -> int:
 
     summary = unified_pass(source, store, product_store, DefaultStockPolicy(), args.customer_id, log,
                            dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new,
-                           sync_prices=args.sync_prices)
+                           sync_prices=args.sync_prices, price_dry_run=not args.price_live)
 
     print(
         f"segal-pass: items_checked={summary.items_checked} "
@@ -460,7 +460,7 @@ def cmd_snir_pass(args, log: Logger, cfg: Config) -> int:
         source = SnirUnifiedSource(adapter=SnirStoreApiAdapter(client=client, logger=log), logger=log)
         summary = unified_pass(source, store, product_store, DefaultStockPolicy(), args.customer_id, log,
                                dry_run=args.dry_run, on_new_drafts=None if args.dry_run else _notify_new,
-                               sync_prices=args.sync_prices)
+                               sync_prices=args.sync_prices, price_dry_run=not args.price_live)
 
     print(
         f"snir-pass: items_checked={summary.items_checked} "
@@ -900,6 +900,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="Plan stock changes + report new products, but write nothing")
     sp.add_argument("--sync-prices", action="store_true",
                     help="Also sync variant prices from the supplier (writes only changes)")
+    sp.add_argument("--price-live", action="store_true",
+                    help="Write price changes (default: price is dry-run/baseline even when the pass is live)")
 
     snp = sub.add_parser(
         "snir-pass",
@@ -910,6 +912,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="Plan stock changes + report new products, but write nothing")
     snp.add_argument("--sync-prices", action="store_true",
                      help="Also sync variant prices from the supplier (writes only changes)")
+    snp.add_argument("--price-live", action="store_true",
+                     help="Write price changes (default: price is dry-run/baseline even when the pass is live)")
     snp.add_argument("--headed", action="store_true",
                      help="Run the browser headed (debugging; default headless)")
 

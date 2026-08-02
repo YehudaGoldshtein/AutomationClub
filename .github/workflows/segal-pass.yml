@@ -17,6 +17,9 @@ on:
       sync_prices:
         type: boolean
         default: false
+      price_live:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -29,7 +32,11 @@ on:
         type: boolean
         default: true
       sync_prices:
-        description: 'Also compute a price baseline (dry — never writes prices here)'
+        description: 'Also sync prices from the supplier'
+        type: boolean
+        default: false
+      price_live:
+        description: 'Write price changes (off = baseline only)'
         type: boolean
         default: false
 
@@ -77,4 +84,5 @@ jobs:
           ARGS="segal-pass --customer-id $CUSTOMER_ID"
           if [[ "${{ inputs.dry_run }}" == "true" ]]; then ARGS="$ARGS --dry-run"; fi
           if [[ "${{ inputs.sync_prices }}" == "true" ]]; then ARGS="$ARGS --sync-prices"; fi
+          if [[ "${{ inputs.price_live }}" == "true" ]]; then ARGS="$ARGS --price-live"; fi
           python -m inventory_sync $ARGS

@@ -15,6 +15,13 @@ from dataclasses import dataclass, field
 from inventory_sync.pricing import PriceAction, TargetPrice, decide_price, reconcile_tags
 
 
+def _pct(old, new):
+    """Signed % change old→new (int), or None when there's no previous price."""
+    if old in (None, 0):
+        return None
+    return int(round(float((new - old) / old * 100)))
+
+
 @dataclass
 class PriceSyncSummary:
     checked: int = 0                 # matched products with a target price
@@ -46,7 +53,8 @@ def reconcile_prices(store, store_products, targets: dict[str, TargetPrice], log
             summary.blocked += 1
             summary.blocked_skus.append(str(p.sku))
             logger.warning("price_change_blocked", sku=str(p.sku),
-                           current=str(p.price), target=str(target.price))
+                           was=str(p.price) if p.price is not None else None,
+                           target=str(target.price), pct=_pct(p.price, target.price))
         else:  # WRITE
             if dry_run:
                 summary.would_update += 1
@@ -55,11 +63,9 @@ def reconcile_prices(store, store_products, targets: dict[str, TargetPrice], log
                 summary.updated += 1
             # Full before→after audit (ships to Axiom in prod). `pct` makes radical
             # moves a one-line filter: price_update where abs(pct) > N.
-            pct = (int(round(float((target.price - p.price) / p.price * 100)))
-                   if p.price not in (None, 0) else None)
             logger.info("price_update", sku=str(p.sku),
                         was=str(p.price) if p.price is not None else None,
-                        price=str(target.price), pct=pct,
+                        price=str(target.price), pct=_pct(p.price, target.price),
                         was_compare_at=str(p.compare_at_price) if p.compare_at_price is not None else None,
                         compare_at=str(target.compare_at) if target.compare_at is not None else None,
                         dry_run=dry_run)

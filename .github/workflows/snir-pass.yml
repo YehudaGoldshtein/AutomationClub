@@ -30,6 +30,9 @@ on:
       sync_prices:
         type: boolean
         default: false
+      price_live:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       customer_id:
@@ -46,7 +49,11 @@ on:
         type: boolean
         default: false
       sync_prices:
-        description: 'Also compute a price baseline (dry — never writes prices here)'
+        description: 'Also sync prices from the supplier'
+        type: boolean
+        default: false
+      price_live:
+        description: 'Write price changes (off = baseline only)'
         type: boolean
         default: false
 
@@ -99,8 +106,10 @@ jobs:
           if [[ "${{ inputs.headed }}" == "true" ]]; then
             ARGS="$ARGS --headed"
           fi
-          # Price baseline only (no --price-live → never writes a price here).
           if [[ "${{ inputs.sync_prices }}" == "true" ]]; then
             ARGS="$ARGS --sync-prices"
+          fi
+          if [[ "${{ inputs.price_live }}" == "true" ]]; then
+            ARGS="$ARGS --price-live"
           fi
           python -m inventory_sync $ARGS

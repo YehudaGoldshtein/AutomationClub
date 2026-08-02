@@ -92,6 +92,12 @@ class TestAuditLog:
         assert upd[0]["compare_at"] == "100"
         assert upd[0]["pct"] == -10   # % change → radical moves are one Axiom filter
 
+    def test_blocked_logs_pct_and_was(self):
+        rec = _RecLog()
+        reconcile_prices(FakeStore(), [_p("A", "100")], {"A": _t("30")}, rec)  # -70% → blocked
+        blk = [kw for e, kw in rec.events if e == "price_change_blocked"]
+        assert blk and blk[0]["pct"] == -70 and blk[0]["was"] == "100"
+
     def test_price_update_pct_none_when_no_previous(self):
         rec = _RecLog()
         reconcile_prices(FakeStore(), [_p("A", None)], {"A": _t("500")}, rec)

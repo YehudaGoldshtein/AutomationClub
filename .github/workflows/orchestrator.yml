@@ -72,7 +72,8 @@ jobs:
     with:
       customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
       dry_run: ${{ github.event.inputs.dry_run == 'true' }}
-      sync_prices: true   # price BASELINE only (dry) — logs would-updates to Axiom
+      sync_prices: true
+      price_live: true    # LIVE price sync (full mirror) — writes changed prices
 
   bambino:
     needs: preflight
@@ -91,7 +92,8 @@ jobs:
     with:
       customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
       dry_run: ${{ github.event.inputs.dry_run == 'true' }}
-      sync_prices: true   # price BASELINE only (dry) — logs would-updates to Axiom
+      sync_prices: true
+      price_live: true    # LIVE price sync (full mirror) — writes changed prices
 
   # runs last regardless of supplier outcomes; not gated by any toggle
   reconcile:

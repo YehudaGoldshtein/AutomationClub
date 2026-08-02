@@ -12,7 +12,6 @@ from inventory_sync.domain import SKU, ProductDraft, VariantSpec
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.log import get
 from inventory_sync.persistence.store_product_store import NewStoreProduct, SqlStoreProductStore
-from inventory_sync.persistence.unarchive_request_store import SqlUnarchiveRequestStore
 from inventory_sync.reconcile import (
     RejectSummary,
     ReconcileSummary,
@@ -121,49 +120,53 @@ class TestRejectReconcile:
         assert reconcile_rejected_drafts(store, ps, C, LOG) == RejectSummary()
 
 
-def _req_store():
-    engine = sqlalchemy.create_engine("sqlite:///:memory:")
-    rs = SqlUnarchiveRequestStore(engine=engine, logger=get("test"))
-    rs.create_schema()
-    return rs
-
-
 class TestUnarchiveReconcile:
-    def test_republishes_requested_product_and_clears_intent(self):
+    """Unarchive reuses store_products.status: the dashboard sets
+    status='unarchive_requested'; reconcile republishes by product id and marks active."""
+
+    def test_republishes_requested_product_and_marks_active(self):
         store, ps = _stores()
         pid = _create_draft(store, ps, ["A-1"], approve=False)  # archived/draft in store
         assert store.get(SKU("A-1")).published is False
-        rs = _req_store()
-        rs.add(C, pid)
+        ps.mark_unarchive_requested(C, pid)
 
-        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+        summary = reconcile_unarchive_requests(store, ps, C, LOG)
 
         assert summary.unarchived == 1
         assert store.get(SKU("A-1")).published is True   # now live
-        assert rs.list_pending(C) == []                  # intent drained
+        assert ps.get(C, "A-1").status == "active"       # lifecycle settled
+        assert ps.list_unarchive_requested(C) == []      # nothing left pending
 
     def test_multi_variant_product_unarchived_once(self):
         store, ps = _stores()
         pid = _create_draft(store, ps, ["A-1", "A-2"], title="סט", approve=False)
-        rs = _req_store()
-        rs.add(C, pid)
+        ps.mark_unarchive_requested(C, pid)
 
-        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+        summary = reconcile_unarchive_requests(store, ps, C, LOG)
 
-        assert summary.unarchived == 1
+        assert summary.unarchived == 1  # one product, not two rows
         assert store.get(SKU("A-1")).published is True
         assert store.get(SKU("A-2")).published is True
+        assert {ps.get(C, s).status for s in ("A-1", "A-2")} == {"active"}
+
+    def test_leaves_non_requested_alone(self):
+        store, ps = _stores()
+        _create_draft(store, ps, ["A-1"], approve=False)  # status=draft, not requested
+        summary = reconcile_unarchive_requests(store, ps, C, LOG)
+        assert summary.unarchived == 0
+        assert store.get(SKU("A-1")).published is False
 
     def test_no_requests_is_noop(self):
-        store, _ = _stores()
-        assert reconcile_unarchive_requests(store, _req_store(), C, LOG) == UnarchiveSummary()
+        store, ps = _stores()
+        assert reconcile_unarchive_requests(store, ps, C, LOG) == UnarchiveSummary()
 
-    def test_error_isolates_and_keeps_intent(self):
-        store, _ = _stores()  # store has no product 88888 → republish_by_id raises
-        rs = _req_store()
-        rs.add(C, "88888")
+    def test_error_isolates_and_keeps_status(self):
+        store, ps = _stores()
+        # Requested row whose product isn't in the store → republish_by_id raises.
+        ps.write_pending(C, [NewStoreProduct(sku="GHOST-1", store_product_id="88888", title="רפאים")])
+        ps.mark_unarchive_requested(C, "88888")
 
-        summary = reconcile_unarchive_requests(store, rs, C, LOG)
+        summary = reconcile_unarchive_requests(store, ps, C, LOG)
 
         assert summary.unarchived == 0 and summary.errors == 1
-        assert rs.list_pending(C) == ["88888"]  # not dropped on failure → retried next run
+        assert ps.get(C, "GHOST-1").status == "unarchive_requested"  # not marked active on failure

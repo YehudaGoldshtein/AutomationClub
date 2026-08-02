@@ -207,13 +207,26 @@ class SqlStoreProductStore:
         self._update_product(customer_id, store_product_id, {"status": "rejected"})
         self.logger.info("store_product_rejected", customer_id=customer_id, store_product_id=store_product_id)
 
+    def mark_unarchive_requested(self, customer_id: str, store_product_id: str) -> None:
+        """Dashboard 'unarchive': mark for republish (reconcile sets it live in the store)."""
+        self._update_product(customer_id, store_product_id, {"status": "unarchive_requested"})
+        self.logger.info("store_product_unarchive_requested",
+                         customer_id=customer_id, store_product_id=store_product_id)
+
     def list_rejected(self, customer_id: str) -> list[StoreProductRecord]:
         """Rows the user ignored: status=rejected (awaiting deletion)."""
+        return self._list_by_status(customer_id, "rejected")
+
+    def list_unarchive_requested(self, customer_id: str) -> list[StoreProductRecord]:
+        """Rows the user asked to unarchive: status=unarchive_requested (awaiting republish)."""
+        return self._list_by_status(customer_id, "unarchive_requested")
+
+    def _list_by_status(self, customer_id: str, status: str) -> list[StoreProductRecord]:
         with Session(self.engine) as session:
             rows = session.execute(
                 select(store_products).where(
                     store_products.c.customer_id == customer_id,
-                    store_products.c.status == "rejected",
+                    store_products.c.status == status,
                 )
             ).mappings().all()
         return [_to_record(r) for r in rows]

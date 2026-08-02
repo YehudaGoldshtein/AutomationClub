@@ -1,0 +1,413 @@
+{
+  "345665432-1": {
+    "sku": "345665432-1",
+    "name": "סלסלת קאמל-חום אבן",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a1%d7%9c%d7%a1%d7%9c%d7%aa-%d7%a7%d7%90%d7%9e%d7%9c/",
+    "category_ids": [
+      138,
+      420,
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 138,
+        "name": "MIX AND MATCH"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      },
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "reg-01": {
+    "sku": "reg-01",
+    "name": "רגל עץ לשידה אלכסון",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a8%d7%92%d7%9c-%d7%a2%d7%a5-%d7%9c%d7%a9%d7%99%d7%93%d7%94-%d7%90%d7%9c%d7%9b%d7%a1%d7%95%d7%9f/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1-2": {
+    "sku": "4567654323456765432-1-2",
+    "name": "רגל אקרילי שילוב זהב ברונזה",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a8%d7%92%d7%9c-%d7%90%d7%a7%d7%a8%d7%99%d7%9c%d7%99-%d7%a9%d7%99%d7%9c%d7%95%d7%91-%d7%96%d7%94%d7%91-%d7%91%d7%a8%d7%95%d7%a0%d7%96%d7%94/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1-1-1-1-1": {
+    "sku": "4567654323456765432-1-1-1-1-1",
+    "name": "שטיח לחדר ילדים לוסי אפור",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a9%d7%98%d7%99%d7%97-%d7%9c%d7%97%d7%93%d7%a8-%d7%99%d7%9c%d7%93%d7%99%d7%9d-%d7%9c%d7%95%d7%a1%d7%99-%d7%90%d7%a4%d7%95%d7%a8/",
+    "category_ids": [
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1-1-1-1": {
+    "sku": "4567654323456765432-1-1-1-1",
+    "name": "שטיח לחדר ילדים באפלה אפור",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a9%d7%98%d7%99%d7%97-%d7%9c%d7%97%d7%93%d7%a8-%d7%99%d7%9c%d7%93%d7%99%d7%9d-%d7%91%d7%90%d7%a4%d7%9c%d7%94-%d7%90%d7%a4%d7%95%d7%a8/",
+    "category_ids": [
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1-1-1": {
+    "sku": "4567654323456765432-1-1-1",
+    "name": "שטיח לחדר ילדים באפלה שמנת",
+    "permalink": "https://www.snir-bebe.com/product/%d7%a9%d7%98%d7%99%d7%97-%d7%9c%d7%97%d7%93%d7%a8-%d7%99%d7%9c%d7%93%d7%99%d7%9d-%d7%a7%d7%a9%d7%aa%d7%95%d7%aa-%d7%a9%d7%9e%d7%a0%d7%aa/",
+    "category_ids": [
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1-1": {
+    "sku": "4567654323456765432-1-1",
+    "name": "ידית מוט עץ חיבור לבן",
+    "permalink": "https://www.snir-bebe.com/product/%d7%99%d7%93%d7%99%d7%aa-%d7%9e%d7%95%d7%98-%d7%a2%d7%a5-%d7%97%d7%99%d7%91%d7%95%d7%a8-%d7%9c%d7%91%d7%9f/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432-1": {
+    "sku": "4567654323456765432-1",
+    "name": "ידית אקרילי שילוב זהב ברונזה",
+    "permalink": "https://www.snir-bebe.com/product/%d7%99%d7%93%d7%99%d7%95%d7%aa-%d7%90%d7%a7%d7%a8%d7%99%d7%9c%d7%99-%d7%91%d7%a8%d7%95%d7%a0%d7%96%d7%94-%d7%9c%d7%a9%d7%99%d7%93%d7%94/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "345665432": {
+    "sku": "345665432",
+    "name": "סלסלת במבוק",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt-1710864250/",
+    "category_ids": [
+      138,
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 138,
+        "name": "MIX AND MATCH"
+      },
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "456787654": {
+    "sku": "456787654",
+    "name": "ידית עץ סטנדרט",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862972/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "4567654323456765432": {
+    "sku": "4567654323456765432",
+    "name": "ידית טבעת שחורה",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862966/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "6543456787654": {
+    "sku": "6543456787654",
+    "name": "ידית עור כפולה ארוכה",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862960/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "34567654323456789": {
+    "sku": "34567654323456789",
+    "name": "מסילה גלגל לבן לשידה",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862902/",
+    "category_ids": [
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "4353534643": {
+    "sku": "4353534643",
+    "name": "תחתית למיטת תינוק",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt-1710862243/",
+    "category_ids": [
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "44445354": {
+    "sku": "44445354",
+    "name": "סולם אחורי קבוע למיטת תינוק",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt-1710862240/",
+    "category_ids": [
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "2343443": {
+    "sku": "2343443",
+    "name": "סולם קדמי עולה יורד למיטת תינוק",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt-1710862236/",
+    "category_ids": [
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "765456787654": {
+    "sku": "765456787654",
+    "name": "ידית עור כפולה",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862156/",
+    "category_ids": [
+      129,
+      420
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      },
+      {
+        "id": 420,
+        "name": "אביזרים לחדר תינוק"
+      }
+    ]
+  },
+  "6789965790": {
+    "sku": "6789965790",
+    "name": "מסילה טלסקופית לשידה",
+    "permalink": "https://www.snir-bebe.com/product/bracker-wheels-1710862145/",
+    "category_ids": [
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "997": {
+    "sku": "997",
+    "name": "סט פרזול מיטה עם מסילות פלסטיק",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt-1710860283/",
+    "category_ids": [
+      138,
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 138,
+        "name": "MIX AND MATCH"
+      },
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "998": {
+    "sku": "998",
+    "name": "סט פרזול מיטה עם פיונים",
+    "permalink": "https://www.snir-bebe.com/product/st-przvl-mith-em-msilvt-mtkt/",
+    "category_ids": [
+      138,
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 138,
+        "name": "MIX AND MATCH"
+      },
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  },
+  "999": {
+    "sku": "999",
+    "name": "סט גלגלים עם פינים למיטה",
+    "permalink": "https://www.snir-bebe.com/product/pinned-wheels/",
+    "category_ids": [
+      138,
+      129
+    ],
+    "in_stock": true,
+    "importable": false,
+    "categories_named": [
+      {
+        "id": 138,
+        "name": "MIX AND MATCH"
+      },
+      {
+        "id": 129,
+        "name": "חלקי חילוף"
+      }
+    ]
+  }
+}

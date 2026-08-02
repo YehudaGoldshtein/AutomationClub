@@ -101,23 +101,32 @@ def reconcile_rejected_drafts(store, product_store, customer_id: str, logger) ->
     return summary
 
 
-def reconcile_unarchive_requests(store, request_store, customer_id: str, logger) -> UnarchiveSummary:
+def reconcile_unarchive_requests(store, product_store, customer_id: str, logger) -> UnarchiveSummary:
     """Republish (status→active) every product the dashboard flagged for unarchive.
 
-    Drains the unarchive_requests queue: republish by product id (works on archived
-    products, unlike republish(sku)) then drop the intent row. A failure leaves the
-    row in place so the next run retries it, and never aborts the others.
+    The dashboard sets store_products.status='unarchive_requested'; this reads those
+    rows, republishes by product id (works on archived products, unlike republish(sku)),
+    then marks the row active. A failure leaves the row as-is so the next run retries
+    it, and never aborts the others. One republish per product (variants share an id).
     """
-    pending = request_store.list_pending(customer_id)
-    if not pending:
+    requested = product_store.list_unarchive_requested(customer_id)
+    if not requested:
         logger.info("reconcile_unarchive_none", customer_id=customer_id)
         return UnarchiveSummary()
 
+    # One representative row per product — republish acts on the whole product.
+    product_ids: list[str] = []
+    seen: set[str] = set()
+    for row in requested:
+        if row.store_product_id and row.store_product_id not in seen:
+            seen.add(row.store_product_id)
+            product_ids.append(row.store_product_id)
+
     summary = UnarchiveSummary()
-    for product_id in pending:
+    for product_id in product_ids:
         try:
             store.republish_by_id(product_id)
-            request_store.mark_done(customer_id, product_id)
+            product_store.mark_active(customer_id, product_id)
         except Exception:
             logger.exception("reconcile_unarchive_failed",
                              customer_id=customer_id, store_product_id=product_id)

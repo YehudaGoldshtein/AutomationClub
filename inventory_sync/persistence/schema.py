@@ -192,19 +192,3 @@ store_products = Table(
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))
-
-
-# Dashboard→backend unarchive intent queue. The dashboard inserts a row when the
-# user clicks "unarchive" on a candidate; the reconcile job republishes the product
-# (status→active) and deletes the row. A present row == pending. Keyed by
-# store_product_id (not sku) because the click acts on a whole product and archived
-# products may not have a store_products row.
-unarchive_requests = Table(
-    "unarchive_requests", metadata,
-    Column("customer_id", String, nullable=False),
-    Column("store_product_id", String, nullable=False),
-    Column("requested_at", DateTime(timezone=True), nullable=False),
-)
-unarchive_requests.append_constraint(
-    _PK(unarchive_requests.c.customer_id, unarchive_requests.c.store_product_id)
-)

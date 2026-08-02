@@ -63,7 +63,6 @@ from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
 from inventory_sync.persistence.migrations import add_store_products_lifecycle_columns
 from inventory_sync.persistence.store_product_store import SqlStoreProductStore
-from inventory_sync.persistence.unarchive_request_store import SqlUnarchiveRequestStore
 from inventory_sync.persistence.supplier_settings_store import (
     SUPPLIERS,
     SqlSupplierSettingsStore,
@@ -603,11 +602,9 @@ def cmd_reconcile(args, log: Logger, cfg: Config) -> int:
     # No vendor filter: activate/delete drafts of any vendor (Laura + Segal).
     store = _build_shopify_adapter(cfg, log, vendor_filter=None)
     product_store = _build_store_product_store(cfg, log)
-    request_store = SqlUnarchiveRequestStore(engine=_build_engine(cfg), logger=log)
-    request_store.create_schema()  # create_all: builds unarchive_requests on a fresh DB
     act = reconcile_approved_drafts(store, product_store, args.customer_id, log)
     rej = reconcile_rejected_drafts(store, product_store, args.customer_id, log)
-    una = reconcile_unarchive_requests(store, request_store, args.customer_id, log)
+    una = reconcile_unarchive_requests(store, product_store, args.customer_id, log)
     print(f"reconcile: activated={act.activated} deleted={rej.deleted} "
           f"unarchived={una.unarchived} errors={act.errors + rej.errors + una.errors}")
     return 1 if (act.errors or rej.errors or una.errors) else 0

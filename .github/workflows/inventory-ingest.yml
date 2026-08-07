@@ -15,6 +15,11 @@ on:
         description: 'Tenant the blob belongs to'
         type: string
         required: true
+      run_ref:
+        description: 'Frontend serial to track this run in ingest_runs (poll by it)'
+        type: string
+        required: false
+        default: ''
       dry_run:
         description: 'Parse + group + report what would be created, but write nothing'
         type: boolean
@@ -59,13 +64,7 @@ jobs:
           AXIOM_API_TOKEN: ${{ secrets.AXIOM_API_TOKEN }}
           AXIOM_DATASET: ${{ vars.AXIOM_DATASET }}
         run: |
-          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
-            python -m inventory_sync ingest \
-              --blob-url "${{ inputs.blob_url }}" \
-              --customer-id "${{ inputs.customer_id }}" \
-              --dry-run
-          else
-            python -m inventory_sync ingest \
-              --blob-url "${{ inputs.blob_url }}" \
-              --customer-id "${{ inputs.customer_id }}"
-          fi
+          ARGS=(ingest --blob-url "${{ inputs.blob_url }}" --customer-id "${{ inputs.customer_id }}")
+          if [[ -n "${{ inputs.run_ref }}" ]]; then ARGS+=(--run-ref "${{ inputs.run_ref }}"); fi
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then ARGS+=(--dry-run); fi
+          python -m inventory_sync "${ARGS[@]}"

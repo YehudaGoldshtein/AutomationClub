@@ -195,3 +195,23 @@ store_products = Table(
 )
 
 store_products.append_constraint(_PK(store_products.c.customer_id, store_products.c.sku))
+
+
+# Ingest-run status, keyed by a frontend-supplied serial (run_ref). The dashboard
+# generates run_ref at upload, passes it into the workflow dispatch, and polls this
+# row to learn the async outcome (running → success | rejected | error) with the
+# reason + counts — no GitHub run-id / polling needed.
+ingest_runs = Table(
+    "ingest_runs", metadata,
+    Column("run_ref", String, primary_key=True),
+    Column("customer_id", String, nullable=False),
+    Column("blob_url", String, nullable=True),
+    Column("status", String, nullable=False),   # running | success | rejected | error
+    Column("reason", String, nullable=True),    # why (rejected/error)
+    Column("created", Integer, nullable=True),
+    Column("archived", Integer, nullable=True),
+    Column("skipped_existing", Integer, nullable=True),
+    Column("errors", Integer, nullable=True),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+)

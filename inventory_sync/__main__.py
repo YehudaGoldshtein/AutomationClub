@@ -64,6 +64,7 @@ from inventory_sync.notifications import (
 from inventory_sync.persistence.customer_repository import SqlCustomerRepository
 from inventory_sync.persistence.item_state_store import SqlItemStateStore
 from inventory_sync.persistence.migrations import add_store_products_lifecycle_columns
+from inventory_sync.persistence.ingest_run_store import SqlIngestRunStore
 from inventory_sync.persistence.store_product_store import SqlStoreProductStore
 from inventory_sync.persistence.supplier_settings_store import (
     SUPPLIERS,
@@ -323,6 +324,13 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
     log = log.bind(customer_id=args.customer_id)
     log.info("ingest_command_start", blob_url=args.blob_url, dry_run=args.dry_run)
 
+    # Frontend-supplied serial: track this run's outcome in a DB row the dashboard
+    # polls by run_ref (running → success | rejected | error). Absent on manual runs.
+    run_ref = getattr(args, "run_ref", None) or None
+    runs = _build_ingest_run_store(cfg, log) if run_ref else None
+    if runs:
+        runs.start(run_ref, args.customer_id, args.blob_url)
+
     resp = httpx.get(args.blob_url, timeout=30.0, follow_redirects=True)
     resp.raise_for_status()
     try:
@@ -334,14 +342,28 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
         # dispatch 204 and won't otherwise learn the upload was rejected.
         log.error("ingest_file_invalid", error=str(e))
         print(f"ingest: ABORTED — invalid file structure: {e}")
+        if runs:
+            runs.finish_rejected(run_ref, str(e))
         _notify_ingest_failure(cfg, log, args.customer_id, str(e))
         return 1
     log.info("ingest_parsed", rows=len(rows))
 
     store = _build_shopify_adapter(cfg, log)
     product_store = _build_store_product_store(cfg, log)
-    summary = ingest_products(rows, store, product_store, args.customer_id, log, dry_run=args.dry_run,
-                              sync_prices=args.sync_prices, price_dry_run=not args.price_live)
+    try:
+        summary = ingest_products(rows, store, product_store, args.customer_id, log, dry_run=args.dry_run,
+                                  sync_prices=args.sync_prices, price_dry_run=not args.price_live)
+    except Exception as e:
+        # Unexpected crash mid-ingest — record it so the dashboard sees 'error', then
+        # re-raise so the job still fails loudly.
+        log.exception("ingest_failed")
+        if runs:
+            runs.finish_error(run_ref, str(e))
+        raise
+
+    if runs:
+        runs.finish_success(run_ref, created=summary.created, archived=summary.archived,
+                            skipped_existing=summary.skipped_existing, errors=summary.errors)
 
     print(
         f"ingest: parsed={len(rows)} created={summary.created} "
@@ -895,6 +917,12 @@ def _build_store_product_store(cfg: Config, log: Logger) -> SqlStoreProductStore
     return sps
 
 
+def _build_ingest_run_store(cfg: Config, log: Logger) -> SqlIngestRunStore:
+    store = SqlIngestRunStore(engine=_build_engine(cfg), logger=log)
+    store.create_schema()  # create_all: builds ingest_runs on a fresh DB
+    return store
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="inventory_sync")
     sub = parser.add_subparsers(dest="command")
@@ -921,6 +949,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     ing.add_argument("--blob-url", required=True, help="URL of the uploaded xlsx blob")
     ing.add_argument("--customer-id", required=True, help="Tenant the blob belongs to")
+    ing.add_argument("--run-ref", default=None,
+                     help="Frontend serial to track this run's outcome in ingest_runs (optional)")
     ing.add_argument("--dry-run", action="store_true",
                      help="Parse + group + report what would be created, but write nothing")
     ing.add_argument("--sync-prices", action="store_true",

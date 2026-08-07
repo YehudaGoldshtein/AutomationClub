@@ -84,7 +84,7 @@ jobs:
       customer_id: ${{ github.event.inputs.customer_id || 'maxbaby' }}
       dry_run: ${{ github.event.inputs.dry_run == 'true' }}
       sync_prices: true
-      price_live: false   # price BASELINE first (dry) — flip to true after reviewing
+      price_live: true    # LIVE price sync (full mirror) — writes changed prices
 
   snir:
     needs: preflight

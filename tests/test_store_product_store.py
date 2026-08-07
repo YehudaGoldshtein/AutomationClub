@@ -167,9 +167,10 @@ class TestMissingAtSource:
 
 
 class TestUnarchiveCandidate:
-    """`unarchive_candidate` mirrors the sync's candidate set onto store_products so
-    the dashboard can list candidates the same way it lists missing_at_source.
-    Replace-set semantics: each run sets the flag to reflect the current set."""
+    """`unarchive_candidate` mirrors each vendor pass's candidate set onto
+    store_products so the dashboard lists candidates like missing_at_source.
+    Replace-set within a scope: flag the set, clear scope rows no longer in it —
+    but never touch rows outside the scope (so vendors don't clobber each other)."""
 
     def test_defaults_false(self, store):
         store.upsert_many(C, [_product("A-1")])
@@ -177,34 +178,42 @@ class TestUnarchiveCandidate:
 
     def test_sets_flag_for_candidate_skus(self, store):
         store.upsert_many(C, [_product("A-1"), _product("A-2")])
-        store.set_unarchive_candidates(C, {"A-1"})
+        store.set_unarchive_candidates(C, {"A-1"}, {"A-1", "A-2"})
         assert store.get(C, "A-1").unarchive_candidate is True
         assert store.get(C, "A-2").unarchive_candidate is False
 
     def test_clears_skus_no_longer_candidates(self, store):
         store.upsert_many(C, [_product("A-1"), _product("A-2")])
-        store.set_unarchive_candidates(C, {"A-1", "A-2"})
-        store.set_unarchive_candidates(C, {"A-1"})           # A-2 dropped off
+        store.set_unarchive_candidates(C, {"A-1", "A-2"}, {"A-1", "A-2"})
+        store.set_unarchive_candidates(C, {"A-1"}, {"A-1", "A-2"})    # A-2 dropped off
         assert store.get(C, "A-1").unarchive_candidate is True
         assert store.get(C, "A-2").unarchive_candidate is False
 
-    def test_empty_set_clears_all(self, store):
+    def test_empty_set_clears_within_scope(self, store):
         store.upsert_many(C, [_product("A-1")])
-        store.set_unarchive_candidates(C, {"A-1"})
-        store.set_unarchive_candidates(C, set())             # nothing is a candidate now
+        store.set_unarchive_candidates(C, {"A-1"}, {"A-1"})
+        store.set_unarchive_candidates(C, set(), {"A-1"})            # nothing is a candidate now
         assert store.get(C, "A-1").unarchive_candidate is False
+
+    def test_other_vendor_scope_is_not_clobbered(self, store):
+        # Vendor A flags A-1; vendor B then runs with its OWN scope {B-1} — A-1 must survive.
+        store.upsert_many(C, [_product("A-1"), _product("B-1")])
+        store.set_unarchive_candidates(C, {"A-1"}, {"A-1"})          # vendor A pass
+        store.set_unarchive_candidates(C, {"B-1"}, {"B-1"})          # vendor B pass
+        assert store.get(C, "A-1").unarchive_candidate is True       # NOT cleared by B
+        assert store.get(C, "B-1").unarchive_candidate is True
 
     def test_scoped_per_customer(self, store):
         store.upsert_many(C, [_product("A-1")])
         store.upsert_many(OTHER, [_product("A-1")])
-        store.set_unarchive_candidates(C, {"A-1"})           # must not touch OTHER
+        store.set_unarchive_candidates(C, {"A-1"}, {"A-1"})          # must not touch OTHER
         assert store.get(C, "A-1").unarchive_candidate is True
         assert store.get(OTHER, "A-1").unarchive_candidate is False
 
     def test_does_not_touch_other_lifecycle_fields(self, store):
         store.write_pending(C, [_pending("D-1", pid="901", needs_review=True,
                                          needs_review_reason="no_image")])
-        store.set_unarchive_candidates(C, {"D-1"})
+        store.set_unarchive_candidates(C, {"D-1"}, {"D-1"})
         rec = store.get(C, "D-1")
         assert rec.unarchive_candidate is True
         assert rec.status == "draft" and rec.needs_review_reason == "no_image"

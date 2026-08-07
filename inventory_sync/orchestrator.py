@@ -50,7 +50,7 @@ class _CatalogAwareSupplier(Protocol):
 
 class _StoreProductStore(Protocol):
     def upsert_many(self, customer_id: str, products) -> None: ...
-    def set_unarchive_candidates(self, customer_id: str, candidate_skus) -> None: ...
+    def set_unarchive_candidates(self, customer_id: str, candidate_skus, scope_skus) -> None: ...
 
 
 def run_sync_pass(
@@ -147,7 +147,10 @@ def run_sync_pass(
     # internal item_state delta table.
     if store_product_store is not None:
         try:
-            store_product_store.set_unarchive_candidates(customer_id, current)
+            # Scope = the vendor's store products this pass examined, so this write
+            # never clears another vendor's flags (Laura vs Bambino run separately).
+            store_product_store.set_unarchive_candidates(
+                customer_id, current, {str(p.sku) for p in all_products})
         except Exception:
             log.exception("unarchive_candidate_flag_failed")
     try:

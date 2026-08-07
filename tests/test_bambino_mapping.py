@@ -12,11 +12,13 @@ from inventory_sync.bambino_mapping import (
     collections_for,
     html_to_rich_text,
     is_importable,
+    price_target,
     route,
     to_product_draft,
     vendor_for,
 )
 from inventory_sync.bambino_source import BambinoDiscount, BambinoProduct
+from inventory_sync.pricing import TargetPrice
 
 WARRANTIES = {
     "Joie": "<p><strong>אחריות</strong></p>\r\n<p>שנתיים מיום הרכישה.</p>",
@@ -39,6 +41,38 @@ def _p(**kw) -> BambinoProduct:
     )
     base.update(kw)
     return BambinoProduct(**base)
+
+
+DAY = date(2026, 8, 2)
+
+
+class TestPriceTarget:
+    """price_target mirrors the draft's discount logic as a TargetPrice for price-sync."""
+
+    def test_no_discount_is_plain_price(self):
+        assert price_target(_p(price=Decimal("399"), discount=None), DAY) == TargetPrice(Decimal("399"))
+
+    def test_active_discount_sets_sale_and_compare_at(self):
+        d = BambinoDiscount(amount=Decimal("349"), start_date=date(2026, 8, 1), end_date=date(2026, 8, 31))
+        assert price_target(_p(price=Decimal("399"), discount=d), DAY) == \
+            TargetPrice(price=Decimal("349"), compare_at=Decimal("399"))
+
+    def test_inactive_discount_is_plain_price(self):
+        d = BambinoDiscount(amount=Decimal("349"), start_date=date(2026, 9, 1), end_date=None)
+        assert price_target(_p(price=Decimal("399"), discount=d), DAY) == TargetPrice(Decimal("399"))
+
+    def test_open_ended_active_discount(self):
+        d = BambinoDiscount(amount=Decimal("300"), start_date=None, end_date=None)
+        assert price_target(_p(price=Decimal("399"), discount=d), DAY) == \
+            TargetPrice(price=Decimal("300"), compare_at=Decimal("399"))
+
+    def test_no_price_returns_none(self):
+        assert price_target(_p(price=None, discount=None), DAY) is None
+
+    def test_discount_not_below_regular_is_plain(self):
+        # amount >= price is not a real sale; numeric guard yields a plain price (no strikethrough).
+        d = BambinoDiscount(amount=Decimal("399"), start_date=None, end_date=None)
+        assert price_target(_p(price=Decimal("399"), discount=d), DAY) == TargetPrice(Decimal("399"))
 
 
 class TestRouting:

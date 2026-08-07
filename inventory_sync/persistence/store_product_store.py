@@ -284,32 +284,44 @@ class SqlStoreProductStore:
             self.logger.info("store_product_missing_cleared", customer_id=customer_id,
                              store_product_id=store_product_id)
 
-    def set_unarchive_candidates(self, customer_id: str, candidate_skus) -> None:
-        """Mirror the sync's unarchive-candidate SKU set onto store_products.
+    def set_unarchive_candidates(self, customer_id: str, candidate_skus, scope_skus) -> None:
+        """Mirror one vendor pass's unarchive-candidate set onto store_products.
 
-        Replace-set per run: flag the given SKUs, clear any previously-flagged SKU no
-        longer in the set. Only rows whose flag actually changes are written (so the
-        dashboard's `updated_at` isn't churned every sync). Scoped to the customer.
+        Replace-set *within scope_skus* (the SKUs that pass examined): flag the
+        candidates, clear any previously-flagged SKU in scope that dropped out.
+        Rows OUTSIDE the scope are never touched, so a Laura pass and a Bambino pass
+        don't clobber each other's flags. Only rows whose flag actually changes are
+        written, so the dashboard's `updated_at` isn't churned every run.
         """
-        cand = {str(s) for s in candidate_skus}
+        scope = {str(s) for s in scope_skus}
+        cand = {str(s) for s in candidate_skus} & scope
         now = datetime.now(timezone.utc)
         with Session(self.engine) as session:
             with session.begin():
-                # Clear rows flagged last run that dropped out of the set.
-                clear = update(store_products).where(
-                    store_products.c.customer_id == customer_id,
-                    store_products.c.unarchive_candidate.is_(True),
-                )
-                if cand:
-                    clear = clear.where(store_products.c.sku.notin_(cand))
-                session.execute(clear.values(unarchive_candidate=False, updated_at=now))
-                # Flag the current set (only rows not already flagged).
-                if cand:
+                # Currently-flagged rows are few; pull them and decide clears in Python
+                # so every UPDATE uses a small IN-list (no huge scope IN-clause).
+                flagged = {
+                    r[0] for r in session.execute(
+                        select(store_products.c.sku).where(
+                            store_products.c.customer_id == customer_id,
+                            store_products.c.unarchive_candidate.is_(True),
+                        )
+                    ).all()
+                }
+                to_clear = [s for s in flagged if s in scope and s not in cand]
+                to_set = [s for s in cand if s not in flagged]
+                if to_clear:
                     session.execute(
                         update(store_products).where(
                             store_products.c.customer_id == customer_id,
-                            store_products.c.sku.in_(cand),
-                            store_products.c.unarchive_candidate.is_(False),
+                            store_products.c.sku.in_(to_clear),
+                        ).values(unarchive_candidate=False, updated_at=now)
+                    )
+                if to_set:
+                    session.execute(
+                        update(store_products).where(
+                            store_products.c.customer_id == customer_id,
+                            store_products.c.sku.in_(to_set),
                         ).values(unarchive_candidate=True, updated_at=now)
                     )
 

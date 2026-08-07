@@ -26,6 +26,7 @@ from inventory_sync import store_content
 from inventory_sync.bambino_source import BambinoProduct
 from inventory_sync.domain import SKU, Metafield, ProductDraft, VariantSpec
 from inventory_sync.log import Logger, get
+from inventory_sync.pricing import TargetPrice, resolve_target
 
 RICH_TEXT = "rich_text_field"
 TEMPLATE = "bambino"  # every Bambino product uses templates/product.bambino.json (§6)
@@ -282,6 +283,22 @@ def build_title(product: BambinoProduct) -> str:
     if not product.is_main_color and product.color:
         title = f"{title} - {decode_entities(product.color)}"
     return title
+
+
+def price_target(product: BambinoProduct, today: date | None = None) -> TargetPrice | None:
+    """The store price we want for a Bambino product (price-sync).
+
+    Same discount logic as the draft (§2): an active overwrite sale sells at the
+    discount amount with the regular price struck through; otherwise the regular
+    price stands. Returns None when there's no price to sync. The sale is decided
+    numerically by resolve_target, so a non-lowering discount yields a plain price.
+    """
+    if product.price is None:
+        return None
+    day = today or date.today()
+    sale = (product.discount.amount
+            if product.discount and product.discount.active_on(day) else None)
+    return resolve_target(product.price, sale)
 
 
 def to_product_draft(product: BambinoProduct, warranties: dict[str, str],

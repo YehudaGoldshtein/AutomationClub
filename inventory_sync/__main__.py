@@ -37,8 +37,10 @@ from inventory_sync.adapters.segal_baby import SegalBabyStoreApiAdapter
 from inventory_sync.adapters.bambino import BambinoApiAdapter
 from inventory_sync.bambino_delete import delete_existing_bambino_brands
 from inventory_sync.bambino_ingest import ingest_bambino
+from inventory_sync.bambino_mapping import price_target as bambino_price_target
 from inventory_sync.bambino_mapping import vendor_for as bambino_vendor_for
 from inventory_sync.missing_source import reconcile_missing_at_source
+from inventory_sync.pricing_sync import reconcile_prices
 from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
 from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.segal_pass import SegalUnifiedSource
@@ -524,21 +526,56 @@ def cmd_bambino_sync(args, log: Logger, cfg: Config) -> int:
     run = SyncEngine(store=store, supplier=supplier, policy=DefaultStockPolicy(),
                      logger=log).run_with_data(products, snapshots)
 
+    product_store = _build_store_product_store(cfg, log)
+
     # missing-at-source: Bambino store products (any of the 9 brand vendors) no
     # longer in the master feed. Guard: skip when the feed came back empty (a fetch
     # failure), else we'd flag every Bambino product.
     flagged_missing = 0
     if catalog_skus:
-        product_store = _build_store_product_store(cfg, log)
         flagged_missing = reconcile_missing_at_source(
             product_store, all_products, catalog_skus, owned_vendors,
             args.customer_id, log, dry_run=args.dry_run)
 
+    # price sync (regular + active overwrite discount), gated by --sync-prices;
+    # stays a dry baseline until --price-live. Bambino spans 9 vendors under one
+    # feed, so targets are keyed by catalog_number (= store SKU).
+    price = None
+    if args.sync_prices:
+        targets = {}
+        for p in catalog:
+            if not p.catalog_number:
+                continue
+            t = bambino_price_target(p)
+            if t is not None:
+                targets[p.catalog_number] = t
+        price = reconcile_prices(store, products, targets, log,
+                                 dry_run=args.dry_run or not args.price_live)
+
+    # unarchive candidates: Bambino products archived in the store but back in stock
+    # at the vendor. Scoped to Bambino's SKUs so it never clears Laura's flags.
+    if not args.dry_run and catalog_skus:
+        scope = {str(p.sku) for p in products}
+        candidates = {
+            str(p.sku) for p in products
+            if not p.published
+            and (snap := snapshots.get(p.vendor_product_id)) is not None
+            and snap.is_available
+        }
+        try:
+            product_store.set_unarchive_candidates(args.customer_id, candidates, scope)
+        except Exception:
+            log.exception("unarchive_candidate_flag_failed")
+
+    price_str = ""
+    if price is not None:
+        price_str = (f" prices_updated={price.updated} prices_would_update={price.would_update} "
+                     f"prices_blocked={price.blocked} tags_updated={price.tags_updated}")
     print(
         f"bambino-sync: items_checked={run.items_checked} "
         f"changes_planned={len(run.changes_planned)} changes_applied={len(run.changes_applied)} "
         f"errors={len(run.errors)} vendor_missing={len(run.vendor_missing)} "
-        f"flagged_missing={flagged_missing} dry_run={args.dry_run}"
+        f"flagged_missing={flagged_missing}{price_str} dry_run={args.dry_run}"
     )
     if not run.aborted and run.errors:
         log.warning("bambino_sync_completed_with_isolated_errors", errors=len(run.errors))
@@ -892,6 +929,10 @@ def main(argv: list[str] | None = None) -> int:
                          help="Tenant to tag Axiom events with (default: maxbaby)")
     bamsync.add_argument("--dry-run", action="store_true",
                          help="Plan stock changes but don't write to the store")
+    bamsync.add_argument("--sync-prices", action="store_true", dest="sync_prices",
+                         help="Also reconcile prices from the master feed (regular + overwrite discount)")
+    bamsync.add_argument("--price-live", action="store_true", dest="price_live",
+                         help="Write price changes (off = dry baseline, logs would-updates)")
 
     bamdel = sub.add_parser(
         "bambino-delete-existing",

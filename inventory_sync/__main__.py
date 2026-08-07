@@ -330,8 +330,11 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
     except LauraFileError as e:
         # Wrong-structure file (e.g. renamed/absent stock column): abort before
         # creating anything, so a header change can't flood the store with drafts.
+        # Alert ops too — the ingest is an async job, so the dashboard only saw the
+        # dispatch 204 and won't otherwise learn the upload was rejected.
         log.error("ingest_file_invalid", error=str(e))
         print(f"ingest: ABORTED — invalid file structure: {e}")
+        _notify_ingest_failure(cfg, log, args.customer_id, str(e))
         return 1
     log.info("ingest_parsed", rows=len(rows))
 
@@ -745,6 +748,28 @@ def _build_laura_adapter(cfg: Config, log: Logger) -> LauraDesignScraperAdapter:
     return LauraDesignScraperAdapter(
         client=client, logger=log, base_url=cfg.vendor.url.rstrip("/"), max_workers=4,
     )
+
+
+def _notify_ingest_failure(cfg: Config, log: Logger, customer_id: str, reason: str) -> None:
+    """Best-effort ops alert that a Laura upload was rejected.
+
+    The ingest runs as an async CI job, so the dashboard already got its dispatch
+    204 and won't otherwise surface this failure. Routes via the customer's
+    sync_error config (maxbaby → ops/WhatsApp); falls back to the legacy notifier.
+    Never raises — a notify hiccup must not mask the original abort.
+    """
+    try:
+        customer = _build_customer_repo(cfg, log).get(customer_id)
+        notifier = _build_notifier_for(customer, cfg, log) if customer else _build_notifier(cfg, log)
+        notifier.dispatch(
+            EVENT_SYNC_ERROR,
+            "Laura upload rejected — wrong file structure",
+            "The uploaded Laura file was NOT ingested (0 products created).\n\n"
+            f"Reason: {reason}\n\nFix the column headers and re-upload.",
+        )
+        log.info("ingest_failure_notified", customer_id=customer_id)
+    except Exception:
+        log.exception("ingest_failure_notify_failed", customer_id=customer_id)
 
 
 def _build_notifier(cfg: Config, log: Logger) -> Notifier:

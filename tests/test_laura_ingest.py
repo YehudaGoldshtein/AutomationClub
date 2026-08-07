@@ -18,7 +18,12 @@ from inventory_sync.adapters.shopify import ShopifyError
 from inventory_sync.domain import SKU, Product, StockLevel, VendorProductId
 from inventory_sync.fakes import InMemoryStore
 from inventory_sync.laura_mapping import CATEGORY_COLLECTION_ID, VENDOR
-from inventory_sync.laura_ingest import IngestSummary, ingest_products, parse_laura_xlsx
+from inventory_sync.laura_ingest import (
+    IngestSummary,
+    LauraFileError,
+    ingest_products,
+    parse_laura_xlsx,
+)
 from inventory_sync.laura_upload import LauraRow
 from inventory_sync.log import get
 from inventory_sync.persistence.store_product_store import SqlStoreProductStore
@@ -54,8 +59,8 @@ class TestParseXlsx:
         assert row.barcode == "7290000000001"  # coerced to str
 
     def test_header_order_independent(self):
-        headers = ["תאור משפחה", "מקט", "מחיר מומלץ", "תיאור פריט"]
-        data = _xlsx(headers, [["בגד גוף", "1000-2", 250, "חולצה כחול"]])
+        headers = ["תאור משפחה", "מקט", "מחיר מומלץ", "תיאור פריט", "מלאי"]
+        data = _xlsx(headers, [["בגד גוף", "1000-2", 250, "חולצה כחול", "במלאי"]])
         [row] = parse_laura_xlsx(data)
         assert row.sku == "1000-2"
         assert row.family == "בגד גוף"
@@ -69,14 +74,37 @@ class TestParseXlsx:
         assert [r.sku for r in parse_laura_xlsx(data)] == ["1000-1"]
 
     def test_missing_optional_columns_ok(self):
-        headers = ["מקט", "תיאור פריט", "תאור משפחה"]
-        data = _xlsx(headers, [["1000-3", "מוצר", "בגד גוף"]])
+        # Required present (sku, description, family, stock); truly-optional absent.
+        headers = ["מקט", "תיאור פריט", "תאור משפחה", "מלאי"]
+        data = _xlsx(headers, [["1000-3", "מוצר", "בגד גוף", "במלאי"]])
         [row] = parse_laura_xlsx(data)
         assert row.text is None
         assert row.image_url is None
         assert row.recommended_price is None
-        assert row.availability is None
+        assert row.barcode is None
+        assert row.availability == "במלאי"
         assert row.discontinued is False
+
+    def test_stock_column_matched_without_zamin(self):
+        # Regression: the file that flooded drafts used header "מלאי " (no "זמין").
+        headers = ["מקט", "תיאור פריט", "תאור משפחה", "מלאי "]
+        data = _xlsx(headers, [["1000-9", "מוצר", "בגד גוף", "אזל"]])
+        [row] = parse_laura_xlsx(data)
+        assert row.availability == "אזל"
+        assert row.discontinued is True
+
+    def test_missing_stock_column_raises(self):
+        # No stock column → we can't tell what's sold out → refuse, don't onboard blindly.
+        headers = ["מקט", "תיאור פריט", "תאור משפחה"]
+        data = _xlsx(headers, [["1000-3", "מוצר", "בגד גוף"]])
+        with pytest.raises(LauraFileError):
+            parse_laura_xlsx(data)
+
+    def test_missing_sku_column_raises(self):
+        headers = ["תיאור פריט", "תאור משפחה", "מלאי"]
+        data = _xlsx(headers, [["מוצר", "בגד גוף", "במלאי"]])
+        with pytest.raises(LauraFileError):
+            parse_laura_xlsx(data)
 
     def test_captures_availability_and_discontinued_flag(self):
         data = _xlsx(HEADERS, [

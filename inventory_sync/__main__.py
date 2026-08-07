@@ -41,7 +41,7 @@ from inventory_sync.bambino_mapping import price_target as bambino_price_target
 from inventory_sync.bambino_mapping import vendor_for as bambino_vendor_for
 from inventory_sync.missing_source import reconcile_missing_at_source
 from inventory_sync.pricing_sync import reconcile_prices
-from inventory_sync.laura_ingest import ingest_products, parse_laura_xlsx
+from inventory_sync.laura_ingest import LauraFileError, ingest_products, parse_laura_xlsx
 from inventory_sync.segal_ingest import ingest_segal
 from inventory_sync.segal_pass import SegalUnifiedSource
 from inventory_sync.snir_pass import SnirUnifiedSource
@@ -325,7 +325,14 @@ def cmd_ingest(args, log: Logger, cfg: Config) -> int:
 
     resp = httpx.get(args.blob_url, timeout=30.0, follow_redirects=True)
     resp.raise_for_status()
-    rows = parse_laura_xlsx(resp.content)
+    try:
+        rows = parse_laura_xlsx(resp.content)
+    except LauraFileError as e:
+        # Wrong-structure file (e.g. renamed/absent stock column): abort before
+        # creating anything, so a header change can't flood the store with drafts.
+        log.error("ingest_file_invalid", error=str(e))
+        print(f"ingest: ABORTED — invalid file structure: {e}")
+        return 1
     log.info("ingest_parsed", rows=len(rows))
 
     store = _build_shopify_adapter(cfg, log)

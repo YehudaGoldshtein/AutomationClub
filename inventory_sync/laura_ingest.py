@@ -61,6 +61,22 @@ _EXACT_HEADERS = {
     "מחיר מומלץ": "recommended_price",
 }
 
+# Columns whose ABSENCE breaks the ingest — most importantly `availability`
+# ("מלאי"): without it we can't tell what's sold out ("אזל"), so the take-down
+# filter silently no-ops and the whole catalog (incl. discontinued items) gets
+# onboarded as drafts. If any of these is missing we refuse the file rather than
+# guess. Value = a human hint at the expected header.
+_REQUIRED_COLUMNS = {
+    "sku": "מקט",
+    "description": "תיאור פריט",
+    "family": "תאור משפחה",
+    "availability": "מלאי / מלאי זמין",
+}
+
+
+class LauraFileError(ValueError):
+    """The uploaded Laura xlsx doesn't have the expected structure (missing columns)."""
+
 
 def _s(value) -> str | None:
     if value is None:
@@ -97,8 +113,17 @@ def parse_laura_xlsx(data: bytes) -> list[LauraRow]:
             col[_EXACT_HEADERS[hs]] = i
         elif "קישור" in hs or "link" in hs.lower():
             col["image_url"] = i
-        elif "זמין" in hs:  # "מלאי זמין" (real file sometimes reads "מלרי זמין")
+        elif "מלאי" in hs or "זמין" in hs:  # stock/availability: "מלאי", "מלאי זמין", "מלרי זמין"
             col["availability"] = i
+
+    # Fail loudly on a wrong-structure file instead of silently onboarding it.
+    missing = [f"{field} ({hint})" for field, hint in _REQUIRED_COLUMNS.items() if field not in col]
+    if missing:
+        seen = [str(h).strip() for h in header if h not in (None, "")]
+        raise LauraFileError(
+            "Laura file is missing required column(s): " + ", ".join(missing)
+            + f". Headers found: {seen}"
+        )
 
     def cell(row, field_name):
         i = col.get(field_name)

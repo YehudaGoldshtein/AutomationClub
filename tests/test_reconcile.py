@@ -119,6 +119,17 @@ class TestRejectReconcile:
         store, ps = _stores()
         assert reconcile_rejected_drafts(store, ps, C, LOG) == RejectSummary()
 
+    def test_rejected_but_product_already_gone_still_drops_row(self):
+        # Row marked rejected, but the Shopify product no longer exists (idempotent
+        # delete). Must count as deleted, drop the DB row, and NOT error — else the
+        # reconcile fails on every run and never clears the stale row.
+        store, ps = _stores()  # store has no such product
+        ps.write_pending(C, [NewStoreProduct(sku="GONE-1", store_product_id="9407742771454", title="נמחק")])
+        ps.mark_rejected(C, "9407742771454")
+        summary = reconcile_rejected_drafts(store, ps, C, LOG)
+        assert summary.deleted == 1 and summary.errors == 0
+        assert ps.get(C, "GONE-1") is None
+
 
 class TestUnarchiveReconcile:
     """Unarchive reuses store_products.status: the dashboard sets

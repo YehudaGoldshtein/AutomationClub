@@ -355,6 +355,12 @@ class ShopifyAdapter:
 
     def delete_product(self, store_product_id: str) -> None:
         resp = self.client.delete(f"/products/{store_product_id}.json")
+        # 404 = the product is already gone, which is exactly the desired end state.
+        # Treat DELETE as idempotent so a stale/rejected row whose product was already
+        # removed doesn't fail the whole reconcile (and can finally be dropped).
+        if resp.status_code == 404:
+            self.logger.warning("product_delete_already_absent", product_id=store_product_id)
+            return
         if resp.status_code != 200:
             self.logger.error("product_delete_failed", status=resp.status_code, body=resp.text[:200])
             raise ShopifyError(f"products/{store_product_id}.json DELETE {resp.status_code}: {resp.text[:200]}")

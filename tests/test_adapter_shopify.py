@@ -115,6 +115,8 @@ class _FakeShopifyApi:
             return httpx.Response(201, json={"metafield": {**mf, "id": self._new_id()}})
         if method == "DELETE" and "/products/" in path and path.endswith(".json"):
             pid = int(path.rsplit("/", 1)[-1].replace(".json", ""))
+            if pid not in self.products:
+                return httpx.Response(404, json={"errors": "Not Found"})
             self.products.pop(pid, None)
             return httpx.Response(200, json={})
         if method == "PUT" and "/variants/" in path and path.endswith(".json"):
@@ -839,6 +841,21 @@ class TestAddToCollection:
             {"product_id": int(c["product_id"]), "collection_id": int(c["collection_id"])}
             for c in fake.collects
         ]
+
+
+class TestDeleteProduct:
+    def test_deletes_existing(self):
+        fake = _FakeShopifyApi([_mk_product(700, [_mk_variant(10, 100, "D-1", 1)])])
+        adapter = _make_adapter(fake)
+        adapter.delete_product("700")
+        assert 700 not in fake.products
+
+    def test_missing_product_is_idempotent_no_raise(self):
+        # 404 = already gone = desired end state; must NOT raise (else reconcile
+        # crashes forever on a stale rejected row whose product was already removed).
+        fake = _FakeShopifyApi([])
+        adapter = _make_adapter(fake)
+        adapter.delete_product("999999")  # must not raise
 
 
 class TestRepublishById:
